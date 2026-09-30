@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layers, Calendar } from 'lucide-react';
+import { Layers, Calendar, Sparkles, Loader2 } from 'lucide-react';
 import EditorControls from './EditorControls';
 import SlideCanvas from './SlideCanvas';
 import SlideNavigator from './SlideNavigator';
+
+const BASE_URL = 'http://127.0.0.1:8000';
 
 export default function CardNewsTab({
   sermonData,
   setSermonData,
   targetSubTab = 'full_sermon',
   targetDay = '1',
+  apiKey = '',
 }) {
   const canvasRef = useRef(null);
 
@@ -16,10 +19,24 @@ export default function CardNewsTab({
   const [subTab, setSubTab] = useState(targetSubTab);
   const [selectedDailyDay, setSelectedDailyDay] = useState(targetDay);
 
+  // 설교카드 생성 버튼 상태
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerated, setIsGenerated] = useState(false);
+
   useEffect(() => {
     if (targetSubTab) setSubTab(targetSubTab);
     if (targetDay) setSelectedDailyDay(targetDay);
   }, [targetSubTab, targetDay]);
+
+  // 이미 sermonCardNews 나 dailyCardNewsSets 데이터가 있으면 생성됨 처리
+  useEffect(() => {
+    const hasFullCards = sermonData?.sermonCardNews?.length > 0;
+    const hasDailyCards = sermonData?.dailyCardNewsSets &&
+      Object.keys(sermonData.dailyCardNewsSets).length > 0;
+    if (hasFullCards || hasDailyCards) {
+      setIsGenerated(true);
+    }
+  }, [sermonData]);
 
   // 에디터 스타일 상태
   const [bgTheme, setBgTheme] = useState('navy');
@@ -33,6 +50,73 @@ export default function CardNewsTab({
 
   const isFullSermon = subTab === 'full_sermon';
 
+  // 설교카드 생성 핸들러 (과금 방지: 이미 카드가 있으면 재호출 방지)
+  const handleGenerateCards = async () => {
+    const hasFullCards = sermonData?.sermonCardNews?.length > 0;
+    const hasDailyCards = sermonData?.dailyCardNewsSets && Object.keys(sermonData.dailyCardNewsSets).length > 0;
+
+    if (hasFullCards && hasDailyCards) {
+      // 이미 분석 시 생성된 카드가 완벽히 존재함 -> API 호출 없이 즉시 표시
+      setIsGenerated(true);
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      // 백엔드에 텍스트 기반 설교카드 분석 요청
+      const title = sermonData?.metadata?.title || '';
+      const sermonText = buildSermonText(sermonData);
+
+      if (!sermonText || sermonText.trim().length < 50) {
+        throw new Error('카드뉴스를 생성할 설교문 내용이 충분하지 않습니다.');
+      }
+
+      const res = await fetch(`${BASE_URL}/api/sermon/analyze-text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, sermon_text: sermonText, gemini_api_key: apiKey || '' }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || '백엔드 서버 카드 생성 실패');
+      }
+
+      const json = await res.json();
+      if (json.data) {
+        setSermonData(prev => ({
+          ...prev,
+          sermonCardNews: json.data.sermonCardNews || prev.sermonCardNews,
+          dailyCardNewsSets: json.data.dailyCardNewsSets || prev.dailyCardNewsSets,
+        }));
+        setIsGenerated(true);
+      } else {
+        throw new Error('카드 생성 결과 데이터가 비어있습니다.');
+      }
+    } catch (err) {
+      console.error('카드 생성 오류:', err);
+      alert('카드뉴스 생성 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 설교 데이터를 텍스트로 변환 (카드 생성용)
+  const buildSermonText = (data) => {
+    const meta = data?.metadata || {};
+    const parts = [];
+    if (meta.title) parts.push(`제목: ${meta.title}`);
+    if (meta.passage) parts.push(`본문: ${meta.passage}`);
+    if (meta.preacher) parts.push(`설교자: ${meta.preacher}`);
+    data?.shorts?.forEach((s, i) => {
+      parts.push(`\n핵심 ${i+1}: ${s.title}\n${s.summary || ''}`);
+    });
+    data?.meditations?.forEach((m, i) => {
+      parts.push(`\nDay ${i+1} 묵상: ${m.theme}\n${(m.content||'').slice(0,200)}`);
+    });
+    return parts.join('\n');
+  };
+
   // 100% 완전한 슬라이드 데이터 보장 (누락 시 메타데이터 및 묵상 데이터에서 즉각 복원)
   const getFallbackSlides = () => {
     const meta = sermonData.metadata || {};
@@ -42,7 +126,6 @@ export default function CardNewsTab({
     const church = churchName || meta.churchName || '예배공동체';
 
     if (isFullSermon) {
-      // 7장 설교 요약 카드뉴스
       const cards = [
         {
           id: 1,
@@ -82,7 +165,6 @@ export default function CardNewsTab({
 
       return cards;
     } else {
-      // 4장 5Day 묵상 카드뉴스
       const dayIdx = parseInt(selectedDailyDay, 10) - 1;
       const dayNames = ['월', '화', '수', '목', '금'];
       const currentDayName = dayNames[dayIdx] || '월';
@@ -195,66 +277,114 @@ export default function CardNewsTab({
           </button>
         </div>
 
-        {!isFullSermon && (
-          <div className="flex items-center gap-1 overflow-x-auto">
-            {['1', '2', '3', '4', '5'].map((day) => {
-              const dayNames = { '1': '월', '2': '화', '3': '수', '4': '목', '5': '금' };
-              const isActive = selectedDailyDay === day;
-              return (
-                <button
-                  key={day}
-                  onClick={() => handleDayChange(day)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                    isActive ? 'bg-[#282622] text-white' : 'bg-[#FAF9F5] text-[#66635E] border border-[#EAE8E1]'
-                  }`}
-                >
-                  Day {day} ({dayNames[day]})
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* 설교카드 생성 버튼 */}
+        <button
+          onClick={handleGenerateCards}
+          disabled={isGenerating}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shadow-xs ${
+            isGenerated
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              : 'bg-[#DA7756] hover:bg-[#C56545] text-white'
+          } disabled:opacity-60`}
+        >
+          {isGenerating ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>설교카드 생성 중...</span>
+            </>
+          ) : isGenerated ? (
+            <>
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>설교카드 재생성</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>설교카드 생성하기</span>
+            </>
+          )}
+        </button>
       </div>
 
-      {/* 스타일 컨트롤바 */}
-      <EditorControls
-        bgTheme={bgTheme}
-        setBgTheme={setBgTheme}
-        customBgUrl={customBgUrl}
-        setCustomBgUrl={setCustomBgUrl}
-        fontFamily={fontFamily}
-        setFontFamily={setFontFamily}
-        fontSize={fontSize}
-        setFontSize={setFontSize}
-        aspectRatio={aspectRatio}
-        setAspectRatio={setAspectRatio}
-        churchName={churchName}
-        setChurchName={setChurchName}
-      />
+      {/* 카드 미생성 안내 */}
+      {!isGenerated && !isGenerating && (
+        <div className="bg-[#FAF9F5] border border-dashed border-[#DA7756]/50 rounded-2xl p-8 text-center space-y-3">
+          <Sparkles className="w-8 h-8 text-[#DA7756]/60 mx-auto" />
+          <div>
+            <p className="text-sm font-bold text-[#282622]">설교카드 & 묵상카드를 생성해보세요</p>
+            <p className="text-xs text-[#807D77] mt-1">
+              위의 <strong className="text-[#DA7756]">설교카드 생성하기</strong> 버튼을 누르면<br />
+              설교카드 7장 & 5일치 묵상카드가 만들어집니다.
+            </p>
+          </div>
+        </div>
+      )}
 
-      {/* 슬라이드 캔버스 프리뷰 */}
-      <SlideCanvas
-        slide={currentSlide}
-        index={currentIndex}
-        total={slides.length}
-        bgTheme={bgTheme}
-        customBgUrl={customBgUrl}
-        fontFamily={fontFamily}
-        fontSize={fontSize}
-        aspectRatio={aspectRatio}
-        churchName={churchName}
-        onUpdateSlide={handleUpdateSlide}
-        canvasRef={canvasRef}
-      />
+      {/* 요일 탭 (daily일 때만 표시) */}
+      {isGenerated && !isFullSermon && (
+        <div className="bg-white rounded-2xl p-3 border border-[#EAE8E1] flex items-center gap-1 overflow-x-auto">
+          {['1', '2', '3', '4', '5'].map((day) => {
+            const dayNames = { '1': '월', '2': '화', '3': '수', '4': '목', '5': '금' };
+            const isActive = selectedDailyDay === day;
+            return (
+              <button
+                key={day}
+                onClick={() => handleDayChange(day)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap ${
+                  isActive ? 'bg-[#282622] text-white' : 'bg-[#FAF9F5] text-[#66635E] border border-[#EAE8E1]'
+                }`}
+              >
+                Day {day} ({dayNames[day]})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {/* 네비게이터 & 다운로드 */}
-      <SlideNavigator
-        slides={slides}
-        currentIndex={currentIndex}
-        setCurrentIndex={setCurrentIndex}
-        canvasRef={canvasRef}
-        title={isFullSermon ? 'sermon-full' : `sermon-day${selectedDailyDay}`}
-      />
+      {/* 슬라이드 에디터 (생성 후에만 표시) */}
+      {isGenerated && (
+        <>
+          {/* 스타일 컨트롤바 */}
+          <EditorControls
+            bgTheme={bgTheme}
+            setBgTheme={setBgTheme}
+            customBgUrl={customBgUrl}
+            setCustomBgUrl={setCustomBgUrl}
+            fontFamily={fontFamily}
+            setFontFamily={setFontFamily}
+            fontSize={fontSize}
+            setFontSize={setFontSize}
+            aspectRatio={aspectRatio}
+            setAspectRatio={setAspectRatio}
+            churchName={churchName}
+            setChurchName={setChurchName}
+          />
+
+          {/* 슬라이드 캔버스 프리뷰 */}
+          <SlideCanvas
+            slide={currentSlide}
+            index={currentIndex}
+            total={slides.length}
+            bgTheme={bgTheme}
+            customBgUrl={customBgUrl}
+            fontFamily={fontFamily}
+            fontSize={fontSize}
+            aspectRatio={aspectRatio}
+            churchName={churchName}
+            onUpdateSlide={handleUpdateSlide}
+            canvasRef={canvasRef}
+          />
+
+          {/* 네비게이터 & 다운로드 */}
+          <SlideNavigator
+            slides={slides}
+            currentIndex={currentIndex}
+            setCurrentIndex={setCurrentIndex}
+            canvasRef={canvasRef}
+            title={isFullSermon ? 'sermon-full' : `sermon-day${selectedDailyDay}`}
+          />
+        </>
+      )}
     </div>
   );
 }

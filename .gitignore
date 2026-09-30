@@ -52,3 +52,6 @@ outputs/
 .DS_Store
 Thumbs.db
 
+# Firebase
+.firebase/
+

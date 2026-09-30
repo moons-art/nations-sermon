@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
-from app.config import OUTPUTS_DIR, TEST_VIDEO_DIR
+from app.config import OUTPUTS_DIR
 from app.services.youtube_service import download_or_prepare_clip
 from app.services.ffmpeg_service import render_short_video
 
@@ -25,11 +25,11 @@ class RenderJob:
     template: str
     church_name: str
     youtube_url: str
-    status: str # "QUEUED", "PROCESSING", "COMPLETED", "FAILED"
-    progress: int # 0 ~ 100
+    status: str  # "QUEUED", "PROCESSING", "COMPLETED", "FAILED"
+    progress: int  # 0 ~ 100
     title_question: str = ""
     title_answer: str = ""
-    platform: str = "youtube" # "youtube" | "instagram"
+    platform: str = "youtube"  # "youtube" | "instagram"
     video_url: Optional[str] = None
     file_path: Optional[str] = None
     error_message: Optional[str] = None
@@ -49,10 +49,6 @@ class SequentialRenderManager:
         self._load_existing_outputs()
 
     def _load_existing_outputs(self):
-        """
-        서버 재시작 시에도 기존 outputs 폴더에 렌더링된 영상들을 복원하여
-        쇼츠 목록 화면에 정상 표시되도록 합니다.
-        """
         try:
             for mp4_file in sorted(OUTPUTS_DIR.glob("shorts_*.mp4"), key=lambda f: f.stat().st_mtime, reverse=True):
                 stem = mp4_file.stem
@@ -72,8 +68,8 @@ class SequentialRenderManager:
                     duration="30초",
                     sentences=[],
                     bgm="grace.mp3",
-                    template="blur_bg",
-                    church_name="마산제일교회",
+                    template="dark_minimal",
+                    church_name="예배공동체",
                     youtube_url="",
                     status="COMPLETED",
                     progress=100,
@@ -100,7 +96,6 @@ class SequentialRenderManager:
         title = job_data.get("title", "설교 쇼츠 하이라이트")
         hook = job_data.get("hook", "")
         
-        # 질문과 해답 2줄 헤더 기본값 처리
         title_q = job_data.get("title_question")
         title_a = job_data.get("title_answer")
         if not title_q:
@@ -140,6 +135,18 @@ class SequentialRenderManager:
     def get_all_jobs(self) -> List[Dict[str, Any]]:
         return [asdict(job) for job in reversed(list(self.jobs.values()))]
 
+    def delete_job(self, job_id: str) -> bool:
+        job = self.jobs.pop(job_id, None)
+        if job:
+            if job.file_path and Path(job.file_path).exists():
+                try:
+                    Path(job.file_path).unlink()
+                except Exception:
+                    pass
+            logger.info(f"렌더링 작업 삭제됨: {job_id}")
+            return True
+        return False
+
     async def _worker_loop(self):
         while self._is_running:
             job_id = await self.queue.get()
@@ -158,7 +165,6 @@ class SequentialRenderManager:
                 job.progress = 25
                 source_video = OUTPUTS_DIR / f"src_{job.short_id}_{job_id}.mp4"
                 
-                # 비동기 블로킹 방지를 위해 run_in_executor에서 실행
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(
                     None,
@@ -172,7 +178,7 @@ class SequentialRenderManager:
                 job.progress = 55
                 job.updated_at = time.time()
 
-                # 2단계: FFmpeg 렌더링 (9:16 크롭 + 상단 2줄 헤더 + 자막 번인 + 오디오 더킹 + 십자가 교회명)
+                # 2단계: FFmpeg 렌더링 (윈도우 스케일링 + 상단 2줄 헤더 + 상대 자막 번인 + 오디오 더킹)
                 output_video = OUTPUTS_DIR / f"shorts_{job.short_id}_{job_id}.mp4"
                 
                 await loop.run_in_executor(
@@ -186,7 +192,9 @@ class SequentialRenderManager:
                     job.church_name,
                     job.title_question,
                     job.title_answer,
-                    job.platform
+                    job.platform,
+                    job.start_time,
+                    job.end_time
                 )
 
                 job.progress = 100
@@ -211,8 +219,6 @@ class SequentialRenderManager:
 
             finally:
                 self.queue.task_done()
-                # 다음 작업 전 CPU 안정화를 위한 짧은 쿨다운 (0.5초)
                 await asyncio.sleep(0.5)
 
-# 싱글톤 인스턴스
 render_manager = SequentialRenderManager()

@@ -6,7 +6,6 @@ from app.services.ffmpeg_service import generate_default_bgm_if_missing
 
 router = APIRouter(prefix="/api", tags=["Assets"])
 
-# 초기 가동 시 BGM 체크
 generate_default_bgm_if_missing()
 
 @router.get("/assets/bgm")

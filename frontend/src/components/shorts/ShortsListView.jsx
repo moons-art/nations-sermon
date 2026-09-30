@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Film, Download, Play, RefreshCw, Loader2, CheckCircle2, Clock, X, AlertCircle } from 'lucide-react';
+import { Film, Download, Play, RefreshCw, Loader2, X, Trash2, AlertCircle } from 'lucide-react';
 import { fetchRenderJobs } from '../../api/client';
+
+const BASE_URL = 'http://127.0.0.1:8000';
 
 export default function ShortsListView({ onView, sermonData }) {
   const [jobs, setJobs] = useState([]);
   const [selectedVideo, setSelectedVideo] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [deletingJobId, setDeletingJobId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
-    // 뷰 진입 시 파란색 알림 점 소거
     if (onView) onView();
-
     loadJobs();
     const interval = setInterval(loadJobs, 2500);
     return () => clearInterval(interval);
@@ -23,8 +24,26 @@ export default function ShortsListView({ onView, sermonData }) {
     }
   };
 
+  const handleDeleteJob = async (jobId) => {
+    setDeletingJobId(jobId);
+    try {
+      const res = await fetch(`${BASE_URL}/api/render/jobs/${jobId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setJobs(prev => prev.filter(j => j.job_id !== jobId));
+      }
+    } catch (err) {
+      console.error('삭제 실패:', err);
+    } finally {
+      setDeletingJobId(null);
+      setConfirmDeleteId(null);
+    }
+  };
+
   const completedJobs = jobs.filter((j) => j.status === 'COMPLETED');
   const activeJobs = jobs.filter((j) => j.status === 'PROCESSING' || j.status === 'QUEUED');
+  const failedJobs = jobs.filter((j) => j.status === 'FAILED');
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn">
@@ -88,8 +107,32 @@ export default function ShortsListView({ onView, sermonData }) {
         </div>
       )}
 
+      {/* 실패한 작업 */}
+      {failedJobs.length > 0 && (
+        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-red-700">
+            <AlertCircle className="w-4 h-4" />
+            <span>렌더링 실패 ({failedJobs.length}개)</span>
+          </div>
+          {failedJobs.map(job => (
+            <div key={job.job_id} className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-red-100 text-xs">
+              <div>
+                <span className="font-semibold text-[#282622]">{job.title}</span>
+                <p className="text-[11px] text-red-600 mt-0.5">{job.error_message || '렌더링 오류'}</p>
+              </div>
+              <button
+                onClick={() => handleDeleteJob(job.job_id)}
+                className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 완료된 쇼츠 비디오 그리드 */}
-      {completedJobs.length === 0 && activeJobs.length === 0 ? (
+      {completedJobs.length === 0 && activeJobs.length === 0 && failedJobs.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-[#EAE8E1]">
           <Film className="w-8 h-8 text-[#A5A29B] mx-auto mb-2" />
           <p className="text-xs text-[#807D77]">아직 생성된 쇼츠가 없습니다.</p>
@@ -181,8 +224,34 @@ export default function ShortsListView({ onView, sermonData }) {
                       className="px-3 py-1.5 rounded-xl border border-[#E0DED7] text-[#282622] hover:bg-[#FAF9F5] text-xs font-semibold flex items-center gap-1 transition-colors"
                     >
                       <Download className="w-3 h-3" />
-                      <span>MP4 저장</span>
+                      <span>MP4</span>
                     </a>
+                    {/* 삭제 버튼 */}
+                    {confirmDeleteId === job.job_id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDeleteJob(job.job_id)}
+                          disabled={deletingJobId === job.job_id}
+                          className="px-2 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-[11px] font-semibold transition-colors"
+                        >
+                          {deletingJobId === job.job_id ? <Loader2 className="w-3 h-3 animate-spin" /> : '삭제'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2 py-1.5 rounded-xl border border-[#E0DED7] text-[#66635E] text-[11px] font-semibold"
+                        >
+                          취소
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(job.job_id)}
+                        className="p-1.5 rounded-xl border border-[#E0DED7] text-[#807D77] hover:text-red-500 hover:border-red-200 transition-colors"
+                        title="삭제"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

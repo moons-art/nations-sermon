@@ -8,6 +8,7 @@ import {
   Key,
   CheckCircle2,
   Sparkles,
+  BookOpen,
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -18,6 +19,7 @@ export default function Sidebar({
   currentSermonTitle,
   shortsNotice, // 'processing' | 'done' | null
   cardNotice,   // 'processing' | 'done' | null
+  analysisState, // { isAnalyzing, progress, elapsed, ... }
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
@@ -29,7 +31,14 @@ export default function Sidebar({
       label: '나의 설교 업로드',
       icon: UploadCloud,
       subText: currentSermonTitle || '업로드된 설교 없음',
-      badge: null,
+      badge: analysisState?.isAnalyzing ? 'processing' : null,
+    },
+    {
+      id: 'sermon_view',
+      label: '설교 분석 결과',
+      icon: BookOpen,
+      subText: currentSermonTitle ? '제목 · 본문 · 설교문' : '분석 후 확인 가능',
+      badge: currentSermonTitle && !analysisState?.isAnalyzing ? 'done' : null,
     },
     {
       id: 'shorts',
@@ -56,6 +65,7 @@ export default function Sidebar({
       badge: cardNotice === 'done' ? 'done' : null,
     },
   ];
+
 
   const handleSaveKey = () => {
     setApiKey(tempKey);

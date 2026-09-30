@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Layers, Calendar, ArrowRight, BookOpen, Clock, Download, Eye } from 'lucide-react';
+import { Search, Layers, ArrowRight, BookOpen, Clock, Eye, Trash2 } from 'lucide-react';
 
-export default function CardListView({ sermonData, onSelectCardSet, onView }) {
+export default function CardListView({ sermonData, setSermonData, onSelectCardSet, onView }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
     if (onView) onView();
@@ -14,6 +15,7 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
   const baseDate = sermonData?.metadata?.publishedAt || '주일 설교';
 
   // 1) 주일 설교 전체 요약 카드 세트
+  const hasFullCards = sermonData?.sermonCardNews?.length > 0;
   const fullSermonCollection = {
     id: 'full-sermon-1',
     type: 'sermon',
@@ -26,6 +28,7 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
     themeColor: '#181D27',
     subTab: 'full_sermon',
     day: null,
+    exists: hasFullCards,
   };
 
   // 2) 5Day 묵상 카드뉴스 세트 (월~금 동적 바인딩)
@@ -42,6 +45,7 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
     const passage = med.bibleVerse ? med.bibleVerse.split('\n')[0] : basePassage;
     const preview = med.application || (med.content ? med.content.slice(0, 60) + '...' : '오늘 하루 말씀 묵상과 삶의 적용');
     const slideCount = sermonData?.dailyCardNewsSets?.[dayKey]?.length || 4;
+    const exists = !!(sermonData?.dailyCardNewsSets?.[dayKey]?.length > 0);
 
     return {
       id: `daily-set-${dayNum}`,
@@ -55,10 +59,28 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
       themeColor: dayColors[idx % dayColors.length],
       subTab: 'daily',
       day: dayKey,
+      exists: exists,
     };
   });
 
   const cardCollections = [fullSermonCollection, ...dailyCollections];
+
+  // 삭제 핸들러
+  const handleDelete = (colId) => {
+    if (colId === 'full-sermon-1') {
+      // 설교카드 7장 삭제
+      setSermonData(prev => ({ ...prev, sermonCardNews: [] }));
+    } else {
+      // 특정 day 묵상카드 삭제
+      const dayKey = colId.replace('daily-set-', '');
+      setSermonData(prev => {
+        const newSets = { ...(prev.dailyCardNewsSets || {}) };
+        delete newSets[dayKey];
+        return { ...prev, dailyCardNewsSets: newSets };
+      });
+    }
+    setConfirmDeleteId(null);
+  };
 
   // 검색 필터링
   const filteredCollections = cardCollections.filter((item) => {
@@ -109,7 +131,11 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
         {filteredCollections.map((col) => (
           <div
             key={col.id}
-            className="bg-white rounded-2xl p-5 border border-[#EAE8E1] hover:border-[#DCD9CF] hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
+            className={`bg-white rounded-2xl p-5 border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group ${
+              col.exists
+                ? 'border-[#EAE8E1] hover:border-[#DCD9CF] hover:shadow-xs'
+                : 'border-dashed border-[#E0DED7] opacity-70'
+            }`}
           >
             {/* 좌측 정보 */}
             <div className="flex items-start gap-4">
@@ -134,6 +160,11 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
                     <Clock className="w-3 h-3 text-[#A5A29B]" />
                     {col.date}
                   </span>
+                  {!col.exists && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#F2EFE8] text-[#A5A29B] font-semibold">
+                      미생성
+                    </span>
+                  )}
                 </div>
 
                 <h3 className="text-sm font-bold text-[#282622] group-hover:text-[#DA7756] transition-colors">
@@ -151,15 +182,43 @@ export default function CardListView({ sermonData, onSelectCardSet, onView }) {
               </div>
             </div>
 
-            {/* 우측 열기 버튼 */}
+            {/* 우측 버튼 */}
             <div className="flex items-center gap-2 self-end sm:self-center">
+              {/* 삭제 버튼 */}
+              {col.exists && (
+                confirmDeleteId === col.id ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleDelete(col.id)}
+                      className="px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-semibold transition-colors"
+                    >
+                      삭제 확인
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="px-3 py-2 rounded-xl border border-[#E0DED7] text-[#66635E] text-xs font-semibold"
+                    >
+                      취소
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteId(col.id)}
+                    className="p-2 rounded-xl border border-[#E0DED7] text-[#807D77] hover:text-red-500 hover:border-red-200 transition-colors"
+                    title="삭제"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )
+              )}
+
               <button
                 type="button"
                 onClick={() => onSelectCardSet(col.subTab, col.day)}
                 className="flex items-center gap-1 px-3.5 py-2 rounded-xl bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-semibold shadow-xs transition-colors"
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>에디터에서 열기</span>
+                <span>{col.exists ? '에디터에서 열기' : '에디터로 이동'}</span>
                 <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
               </button>
             </div>

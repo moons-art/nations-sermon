@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from app.services.ai_service import (
     complete_sermon_draft,
     refine_for_video,
@@ -28,11 +28,20 @@ class ToneTrainRequest(BaseModel):
     samples: List[str]
     gemini_api_key: Optional[str] = None
 
+from app.services.cache_service import get_cached_text_analysis, save_cached_text_analysis
+
 @router.post("/analyze-text")
 async def analyze_text(req: TextAnalyzeRequest):
     if not req.sermon_text.strip():
         raise HTTPException(status_code=400, detail="설교 텍스트를 입력해주세요.")
-    # AI service를 활용해 텍스트 기반 콘텐츠 생성
+        
+    # [과금 방지 캐시 확인]
+    cached = get_cached_text_analysis(req.sermon_text)
+    if cached:
+        if req.title and "metadata" in cached:
+            cached["metadata"]["title"] = req.title
+        return { "status": "success", "is_cached": True, "data": cached }
+
     details = {
         "title": req.title or "주일 설교",
         "channel": "본당 설교",
@@ -40,19 +49,23 @@ async def analyze_text(req: TextAnalyzeRequest):
         "transcript_text": req.sermon_text,
         "duration_str": "35:00"
     }
-    data = await analyze_sermon_video(
-        youtube_url="",
-        video_details=details,
-        custom_api_key=req.gemini_api_key
-    )
-    if req.title:
-        data["metadata"]["title"] = req.title
-    return { "status": "success", "data": data }
+    try:
+        data = await analyze_sermon_video(
+            youtube_url="",
+            video_details=details,
+            custom_api_key=req.gemini_api_key
+        )
+        if req.title and "metadata" in data:
+            data["metadata"]["title"] = req.title
+        save_cached_text_analysis(req.sermon_text, data)
+        return { "status": "success", "is_cached": False, "data": data }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/complete-draft")
 async def complete_draft(req: DraftCompleteRequest):
     if not req.idea_text.strip():
-        raise HTTPException(status_code=400, detail="설교 아이디어나 본문 메모를 입력해주세요.")
+        raise HTTPException(status_code=400, detail="설교 아이디어를 입력해주세요.")
     result = await complete_sermon_draft(
         req.idea_text,
         tone_profile=req.tone_profile or "",

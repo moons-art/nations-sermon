@@ -15,14 +15,10 @@ logger = logging.getLogger("seolgyo_ai")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 앱 시작 시
     logger.info("Seolgyo AI 백엔드 서버 가동 시작")
-    # 기본 BGM 생성
     generate_default_bgm_if_missing()
-    # 순차 렌더링 큐 백그라운드 워커 시작
     render_manager.start_worker()
     yield
-    # 앱 종료 시
     logger.info("Seolgyo AI 백엔드 서버 종료")
 
 app = FastAPI(
@@ -32,7 +28,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,7 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 라우터 연결
 app.include_router(analyze.router)
 app.include_router(render.router)
 app.include_router(assets.router)

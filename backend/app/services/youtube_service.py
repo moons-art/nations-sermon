@@ -23,11 +23,15 @@ def extract_video_id(url: str) -> str:
             return match.group(1)
     return ""
 
+def parse_time_to_seconds(time_str: str) -> int:
+    parts = list(map(int, time_str.strip().split(":")))
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    elif len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return 0
+
 def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
-    """
-    유튜브 URL에서 실제 비디오 메타데이터(제목, 채널명, 설명란, 썸네일, 길이)와
-    실제 설교 대본/자막(한국어 우선, 자동자막 포함)을 타임스탬프와 함께 추출합니다.
-    """
     video_id = extract_video_id(url)
     default_thumb = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
     details = {
@@ -41,13 +45,21 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
         "transcript_text": ""
     }
 
-    # 1. yt-dlp 메타데이터 추출
     try:
         import yt_dlp
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'skip_download': True
+            'skip_download': True,
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'http_headers': {
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            },
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'mweb'],
+                }
+            },
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -64,8 +76,11 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 details["duration_str"] = f"{mins:02d}:{secs:02d}"
     except Exception as e:
         logger.warning(f"yt-dlp 메타데이터 추출 실패: {e}")
+        # 실패 시 video_id에서 기본 정보 구성
+        if video_id:
+            details["video_id"] = video_id
+            details["thumbnail"] = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
 
-    # 2. youtube_transcript_api를 통한 실제 자막/대본 추출 (수동/자동 자막 전방위 탐색)
     if video_id:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
@@ -73,7 +88,6 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             transcript_list = api.list(video_id)
             target_transcript = None
 
-            # 1순위: 한국어 수동/자동 자막
             try:
                 target_transcript = transcript_list.find_transcript(['ko', 'ko-KR', 'ko-kr'])
             except Exception:
@@ -82,17 +96,6 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 except Exception:
                     pass
 
-            # 2순위: 영어 수동/자동 자막
-            if not target_transcript:
-                try:
-                    target_transcript = transcript_list.find_transcript(['en', 'en-US'])
-                except Exception:
-                    try:
-                        target_transcript = transcript_list.find_generated_transcript(['en', 'en-US'])
-                    except Exception:
-                        pass
-
-            # 3순위: 기타 사용 가능한 첫 번째 자막
             if not target_transcript:
                 try:
                     for t in transcript_list:
@@ -109,59 +112,17 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                     secs = int(s.start % 60)
                     lines.append(f"[{mins:02d}:{secs:02d}] {s.text}")
                 details["transcript_text"] = "\n".join(lines)
-                logger.info(f"유튜브 실제 자막 추출 성공: {len(lines)}행 (언어: {target_transcript.language_code})")
+                logger.info(f"유튜브 실제 자막 추출 성공: {len(lines)}행")
         except Exception as e:
             logger.warning(f"youtube-transcript-api 자막 추출 실패: {e}")
 
     return details
 
-def parse_time_to_seconds(time_str: str) -> int:
-    """MM:SS 또는 HH:MM:SS 문자열을 초(seconds)로 변환"""
-    parts = list(map(int, time_str.strip().split(":")))
-    if len(parts) == 2:
-        return parts[0] * 60 + parts[1]
-    elif len(parts) == 3:
-        return parts[0] * 3600 + parts[1] * 60 + parts[2]
-    return 0
-
-def get_video_info(url: str) -> Dict[str, Any]:
-    """yt-dlp를 이용하여 유튜브 비디오의 기본 정보를 가져옵니다."""
-    try:
-        import yt_dlp
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return {
-                "title": info.get("title", "유튜브 설교 영상"),
-                "duration": info.get("duration", 1800),
-                "thumbnail": info.get("thumbnail", ""),
-                "channel": info.get("uploader", "교회 방송실")
-            }
-    except Exception as e:
-        logger.warning(f"yt-dlp 메타데이터 추출 실패({e}). 기본 목업 정보를 사용합니다.")
-        return {
-            "title": "광야에서 꽃 피우는 믿음의 비밀",
-            "duration": 2142,
-            "thumbnail": "https://images.unsplash.com/photo-1507692049790-de58290a4334?w=800&auto=format&fit=crop&q=80",
-            "channel": "오륜교회 예배공동체"
-        }
-
-def generate_local_test_video(output_path: Path, duration_seconds: int = 15, thumbnail_url: str = "") -> Path:
-    """
-    외부 유튜브 다운로드 실패 시에도 '삐 소리'나 '설교 본문 영상 프리뷰' 같은
-    어색한 더미 요소 없이, 은혜로운 배경과 무음(또는 BGM용 오디오)으로 고화질 영상을 생성합니다.
-    """
+def generate_local_test_video(output_path: Path, duration_seconds: int = 15) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists() and output_path.stat().st_size > 1000:
         return output_path
 
-    logger.info(f"배경 비디오 생성 중: {output_path}")
-
-    # 삐 소리(sine=frequency=440)를 완전히 제거하고 무음(anullsrc) 생성
     cmd = [
         FFMPEG_PATH, "-y",
         "-f", "lavfi",
@@ -172,7 +133,6 @@ def generate_local_test_video(output_path: Path, duration_seconds: int = 15, thu
         "-c:a", "aac", "-b:a", "128k",
         str(output_path)
     ]
-
     try:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
     except Exception as e:
@@ -181,25 +141,23 @@ def generate_local_test_video(output_path: Path, duration_seconds: int = 15, thu
     return output_path
 
 def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_file: Path) -> Path:
-    """
-    유튜브 URL에서 지정된 쇼츠 구간(startTime ~ endTime)의 실제 영상과 오디오를
-    yt-dlp의 download_ranges 및 FFmpeg 스트리밍 파이프라인으로 정밀하게 추출합니다.
-    """
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
     start_sec = parse_time_to_seconds(start_time)
     end_sec = parse_time_to_seconds(end_time)
-    duration = max(5, end_sec - start_sec if end_sec > start_sec else 30)
 
-    # FFmpeg 실행 파일 디렉토리를 PATH 환경 변수에 확실하게 주입
     ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
     if ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
-    # 1. yt-dlp download_ranges로 해당 구간 실제 영상/음성만 직접 다운로드 (초고속 및 풀영상 다운로드 방지)
+    if not url or ("youtube" not in url and "youtu.be" not in url):
+        raise RuntimeError(
+            f"유효하지 않은 유튜브 URL입니다: {url}\n"
+            "올바른 유튜브 URL을 입력해주세요."
+        )
+
     try:
         import yt_dlp
-
         def my_ranges(info_dict, ydl):
             return [{'start_time': start_sec, 'end_time': end_sec}]
 
@@ -211,49 +169,36 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'ffmpeg_location': ffmpeg_dir,
             'quiet': True,
             'no_warnings': True,
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'http_headers': {
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            },
+            'retries': 3,
+            'fragment_retries': 3,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'mweb'],
+                }
+            },
         }
-
-        logger.info(f"유튜브 실제 설교 구간 다운로드 시작: {url} ({start_time} ~ {end_time})")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
         if target_file.exists() and target_file.stat().st_size > 10000:
-            logger.info(f"유튜브 실제 설교 클립 다운로드 완료: {target_file} ({target_file.stat().st_size} bytes)")
+            logger.info(f"유튜브 실제 클립 다운로드 완료: {target_file}")
             return target_file
-
+        else:
+            raise RuntimeError(
+                f"유튜브 영상 다운로드에 실패했습니다.\n"
+                f"구간: {start_time} ~ {end_time}\n"
+                "해당 영상이 다운로드 가능한지 확인해주세요. "
+                "(지역 제한, 연령 제한, 또는 삭제된 영상일 수 있습니다.)"
+            )
+    except RuntimeError:
+        raise
     except Exception as e:
-        logger.warning(f"yt-dlp download_ranges 다운로드 실패({e}). FFmpeg 직접 스트림 추출로 2차 시도합니다.")
-
-    # 2. 2차 시도: yt-dlp로 다이렉트 스트림 URL 추출 후 FFmpeg로 직접 해당 구간 캡처
-    try:
-        import yt_dlp
-        ydl_opts_stream = {
-            'quiet': True,
-            'no_warnings': True,
-            'format': 'best[ext=mp4]/best'
-        }
-        with yt_dlp.YoutubeDL(ydl_opts_stream) as ydl:
-            info = ydl.extract_info(url, download=False)
-            stream_url = info.get("url")
-
-        if stream_url:
-            cut_cmd = [
-                FFMPEG_PATH, "-y",
-                "-ss", str(start_sec),
-                "-i", stream_url,
-                "-t", str(duration),
-                "-c:v", "libx264",
-                "-preset", "faster",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                str(target_file)
-            ]
-            subprocess.run(cut_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-            if target_file.exists() and target_file.stat().st_size > 10000:
-                logger.info(f"FFmpeg 스트림 직접 캡처 성공: {target_file}")
-                return target_file
-    except Exception as e2:
-        logger.warning(f"FFmpeg 스트림 직접 캡처 실패({e2}).")
-
-    # 3. 폴백: 무음 배경 비디오 (삐 소리 및 프리뷰 텍스트 절대 없음)
-    return generate_local_test_video(target_file, duration_seconds=min(duration, 30))
+        raise RuntimeError(
+            f"유튜브 영상 다운로드 중 오류가 발생했습니다.\n"
+            f"오류: {str(e)}\n"
+            f"구간: {start_time} ~ {end_time}"
+        )

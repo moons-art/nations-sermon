@@ -14,7 +14,7 @@ class ShortRenderItem(BaseModel):
     sentences: List[Dict[str, Any]]
     bgm: Optional[str] = "grace.mp3"
     template: Optional[str] = "dark_minimal"
-    platform: Optional[str] = "youtube" # "youtube" | "instagram"
+    platform: Optional[str] = "youtube"
     church_name: Optional[str] = ""
     youtube_url: Optional[str] = ""
     title_question: Optional[str] = None
@@ -59,4 +59,14 @@ async def get_status(job_id: str):
     return {
         "status": "success",
         "job": job
+    }
+
+@router.delete("/jobs/{job_id}")
+async def delete_job(job_id: str):
+    success = render_manager.delete_job(job_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없거나 이미 삭제되었습니다.")
+    return {
+        "status": "success",
+        "message": f"작업({job_id})이 삭제되었습니다."
     }
