@@ -32,33 +32,68 @@ def parse_time_to_seconds(time_str: str) -> int:
     return 0
 
 import base64
+import tempfile
 
 def get_cookie_file_path() -> Optional[str]:
-    """환경변수 YOUTUBE_COOKIES_BASE64가 있으면 임시 파일로 디코딩하여 반환"""
+    """환경변수 YOUTUBE_COOKIES_BASE64가 있으면 디코딩하여 /tmp/youtube_cookies.txt에 저장 후 경로 반환"""
     cookies_b64 = os.getenv("YOUTUBE_COOKIES_BASE64", "").strip()
     if not cookies_b64:
         return None
     try:
-        cookie_path = Path("/tmp/yt_cookies.txt")
-        if not cookie_path.exists():
-            decoded = base64.b64decode(cookies_b64).decode("utf-8", errors="ignore")
-            cookie_path.write_text(decoded, encoding="utf-8")
+        # 리눅스/Cloud Run은 /tmp 우선, 기타 환경은 시스템 임시 디렉토리
+        tmp_dir = Path("/tmp")
+        if not tmp_dir.exists():
+            tmp_dir = Path(tempfile.gettempdir())
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        cookie_path = tmp_dir / "youtube_cookies.txt"
+        decoded = base64.b64decode(cookies_b64).decode("utf-8", errors="ignore")
+        cookie_path.write_text(decoded, encoding="utf-8")
+        
+        size = cookie_path.stat().st_size
+        logger.info(f"🍪 [쿠키 파일 로드 성공] 경로: {cookie_path} (크기: {size} bytes)")
         return str(cookie_path)
     except Exception as e:
-        logger.warning(f"쿠키 파일 디코딩 실패: {e}")
+        logger.error(f"❌ [쿠키 파일 디코딩 실패] YOUTUBE_COOKIES_BASE64 디코딩 중 에러: {e}")
         return None
 
 def apply_proxy_and_cookies(ydl_opts: Dict[str, Any]):
-    """환경변수 기반 프록시(YOUTUBE_PROXY) 및 쿠키 적용"""
+    """
+    환경변수 기반 프록시(YOUTUBE_PROXY) 및 쿠키(YOUTUBE_COOKIES_BASE64) 최우선 주입.
+    * 중요: 모바일 클라이언트(android, ios)는 쿠키를 지원하지 않으므로,
+      쿠키가 있을 때는 모바일 클라이언트 강제 고정을 해제하고 쿠키 호환 Web/MWeb 클라이언트를 사용합니다.
+    """
+    # 1. 프록시 지원
     proxy = os.getenv("YOUTUBE_PROXY", "").strip()
     if proxy:
         ydl_opts["proxy"] = proxy
-        logger.info(f"유튜브 프록시 활성화: {proxy}")
+        # 로그용 마스킹 처리 (계정:비밀번호 숨김)
+        masked_proxy = re.sub(r':([^:@]+)@', ':****@', proxy)
+        logger.info(f"🌐 [프록시 적용] YOUTUBE_PROXY 활성화: {masked_proxy}")
+    else:
+        logger.info("ℹ️ [프록시 미적용] YOUTUBE_PROXY 환경변수가 설정되지 않았습니다 (직접 연결).")
 
+    # 2. 쿠키 지원 및 클라이언트 분기
     cookie_file = get_cookie_file_path()
     if cookie_file:
         ydl_opts["cookiefile"] = cookie_file
-        logger.info("유튜브 쿠키 파일 적용 완료")
+        # 쿠키가 정상 작동하도록 Web/MWeb 클라이언트와 데스크톱 UA 적용 (모바일 클라이언트 해제)
+        ydl_opts["user_agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ydl_opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["web", "mweb"]
+            }
+        }
+        logger.info(f"🍪 [쿠키 연동 완료] 쿠키 적용 및 Web/MWeb 클라이언트 전환 완료 (경로: {cookie_file})")
+    else:
+        # 쿠키가 없는 경우 모바일 클라이언트 세션 사용
+        ydl_opts["user_agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+        ydl_opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["ios", "android"]
+            }
+        }
+        logger.info("ℹ️ [쿠키 미적용] YOUTUBE_COOKIES_BASE64가 없어 기본 모바일 클라이언트(ios, android) 세션으로 동작합니다.")
 
 def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
     video_id = extract_video_id(url)
@@ -239,9 +274,13 @@ def generate_local_test_video(output_path: Path, duration_seconds: int = 15) -> 
 def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_file: Path) -> Path:
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
-    start_sec = max(0, parse_time_to_seconds(start_time))
-    # 말문이 도중에 끊기지 않고 자연스럽게 호흡이 맺어지도록 끝부분에 0.5초 여유 마진 부여
-    end_sec = parse_time_to_seconds(end_time) + 0.5
+    raw_start = parse_time_to_seconds(start_time)
+    raw_end = parse_time_to_seconds(end_time)
+
+    # 앞뒤 여유 1.5초 마진 부여 (호흡 끊김 방지 및 키프레임 보정)
+    start_sec = max(0.0, float(raw_start) - 1.5)
+    end_sec = float(raw_end) + 1.5
+    clip_duration = end_sec - start_sec
 
     ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
     if ffmpeg_dir not in os.environ.get("PATH", ""):
@@ -253,50 +292,65 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             "올바른 유튜브 URL을 입력해주세요."
         )
 
+    logger.info(
+        f"🚀 [유튜브 클립 부분 다운로드 시작] "
+        f"URL: {url} | 구간: {start_time} ~ {end_time} "
+        f"(실제 추출 범위: {start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초)"
+    )
+
     try:
         import yt_dlp
-        def my_ranges(info_dict, ydl):
+
+        # 1시간 전체 영상을 받지 않고 요청된 타임스탬프 구간만 스트리밍 다운로드
+        def section_ranges(info_dict, ydl):
+            logger.info(f"✂️ [yt-dlp 구간 지정 적용] {start_sec:.1f}초 ~ {end_sec:.1f}초 스트림 다운로드 수행")
             return [{'start_time': start_sec, 'end_time': end_sec}]
 
         ydl_opts = {
             'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
             'outtmpl': str(target_file),
-            'download_ranges': my_ranges,
+            'download_ranges': section_ranges,
             'force_keyframes_at_cuts': True,
             'ffmpeg_location': ffmpeg_dir,
-            'quiet': True,
-            'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+            'quiet': False,
+            'no_warnings': False,
             'http_headers': {
                 'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
             },
             'retries': 3,
             'fragment_retries': 3,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'android'],
-                }
-            },
         }
+
+        # 쿠키 및 프록시 주입 (쿠키 유무에 따라 user_agent 및 extractor_args 자동 분기)
         apply_proxy_and_cookies(ydl_opts)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
         if target_file.exists() and target_file.stat().st_size > 10000:
-            logger.info(f"유튜브 실제 클립 다운로드 완료: {target_file}")
+            file_size_mb = target_file.stat().st_size / (1024 * 1024)
+            logger.info(f"✅ [유튜브 클립 부분 다운로드 성공] 파일: {target_file} (크기: {file_size_mb:.2f} MB)")
             return target_file
         else:
             raise RuntimeError(
                 f"유튜브 영상 다운로드에 실패했습니다.\n"
                 f"구간: {start_time} ~ {end_time}\n"
-                "해당 영상이 다운로드 가능한지 확인해주세요. "
-                "(지역 제한, 연령 제한, 또는 삭제된 영상일 수 있습니다.)"
+                "파일이 생성되지 않았거나 크기가 너무 작습니다."
             )
     except RuntimeError:
         raise
     except Exception as e:
+        error_msg = str(e)
+        logger.error(f"❌ [유튜브 다운로드 실패] {error_msg}", exc_info=True)
+        if "Sign in to confirm you’re not a bot" in error_msg or "403" in error_msg:
+            raise RuntimeError(
+                f"유튜브 봇 차단이 감지되었습니다 (Sign in to confirm you're not a bot).\n"
+                f"Cloud Run 환경변수에 'YOUTUBE_COOKIES_BASE64' 또는 'YOUTUBE_PROXY'를 등록해 주세요.\n"
+                f"오류 상세: {error_msg}"
+            )
         raise RuntimeError(
             f"유튜브 영상 다운로드 중 오류가 발생했습니다.\n"
-            f"오류: {str(e)}\n"
+            f"오류: {error_msg}\n"
             f"구간: {start_time} ~ {end_time}"
         )
+

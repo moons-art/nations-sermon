@@ -12,8 +12,9 @@ import AuthModal from './components/AuthModal';
 import PricingPage from './components/PricingPage';
 import { useAuth } from './api/AuthContext';
 import { LogIn, LogOut, Crown, User, Menu, PanelLeft } from 'lucide-react';
-
-const BASE_URL = 'http://127.0.0.1:8000';
+const BASE_URL = import.meta.env.VITE_API_URL !== undefined 
+  ? import.meta.env.VITE_API_URL 
+  : (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
 export default function App() {
   const { currentUser, userLoading, logout } = useAuth();
