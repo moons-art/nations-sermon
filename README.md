@@ -1,20 +1,26 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 설교 AI (Seolgyo AI)
 
-# Run and deploy your AI Studio app
+설교 영상 분석 및 AI 숏츠 렌더링, 묵상글, 카드뉴스 생성 풀스택 애플리케이션입니다.
 
-This contains everything you need to run your app locally.
+## 🚀 아키텍처 및 실행 방법
 
-View your app in AI Studio: https://ai.studio/apps/9aaf10c7-650d-4189-9f6a-47da9e53976d
+### 1. 백엔드 (FastAPI / Python) - 포트 8000
+```bash
+cd backend
+source .venv/bin/activate  # (Windows는 .venv\Scripts\activate)
+python run.py
+```
+- API 문서: http://localhost:8000/docs
 
-## Run Locally
+### 2. 프론트엔드 (React / Vite) - 포트 5173
+```bash
+cd frontend
+npm install
+npm run dev
+```
+- 웹 애플리케이션: http://localhost:5173
 
-**Prerequisites:**  Node.js
+---
 
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 💻 윈도우 원클릭 실행
+루트의 `start.bat` 파일을 더블클릭하면 백엔드와 프론트엔드가 동시에 실행됩니다.

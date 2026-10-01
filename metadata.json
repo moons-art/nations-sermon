@@ -1,8 +1,0 @@
-{
-  "name": "설교 AI 스튜디오 (Seolgyo AI Studio)",
-  "description": "유튜브 설교 영상 및 설교문으로 쇼츠 하이라이트 영상, 5일치 설교 묵상집, 인스타그램 카드뉴스를 자동 생성 및 편집하는 올인원 미디어 사역 솔루션",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
