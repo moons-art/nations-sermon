@@ -91,22 +91,21 @@ async def analyze_sermon_video(
     duration_seconds = details.get("duration", 0)
     transcript_text = details.get("transcript_text", "")
     
-    # 자막이 없으면 분석 불가
-    if not transcript_text or len(transcript_text.strip()) < 200:
-        raise ValueError(
-            "유튜브 자막을 추출하지 못했습니다.\n"
-            "해당 영상에 자막(CC)이 없거나, 자막이 비활성화되어 있을 수 있습니다.\n"
-            "자막이 활성화된 설교 영상 URL을 입력해주세요."
-        )
+    has_transcript = bool(transcript_text and len(transcript_text.strip()) >= 200)
     
     if not api_key:
         raise ValueError(
             "Gemini API 키가 설정되어 있지 않습니다.\n"
             "좌측 사이드바에서 Gemini API 키를 입력해주세요."
         )
-    
-    # [비용 절감]: 자막 압축 전처리 (토큰 70% 절감)
-    compressed_transcript = clean_and_compress_transcript(transcript_text, duration_seconds)
+
+    if has_transcript:
+        compressed_transcript = clean_and_compress_transcript(transcript_text, duration_seconds)
+        transcript_section = f"""[설교 자막 (실제 타임스탬프 포함)]
+{compressed_transcript}"""
+    else:
+        logger.info(f"자막 미추출 상태 -> Gemini 직접 시청 분석 모드(Part.from_uri) 가동: {youtube_url}")
+        transcript_section = "[안내: 유튜브 영상을 직접 시청하고 음성을 분석하여 실제 타임스탬프 기반의 쇼츠 구간과 자막을 도출하세요.]"
 
     prompt = f"""당신은 한국 설교 미디어 전문가입니다.
 아래 유튜브 설교 영상의 자막을 분석하여 JSON을 반환하세요.
@@ -117,8 +116,7 @@ async def analyze_sermon_video(
 - 채널/교회: {channel}
 - 영상 길이: {duration_str}
 
-[설교 자막 (실제 타임스탬프 포함)]
-{compressed_transcript}
+{transcript_section}
 
 반드시 아래 규칙을 지켜주세요:
 1. [가장 중요 - 감동적인 하이라이트와 온전한 문장 마무리]:
@@ -206,13 +204,20 @@ async def analyze_sermon_video(
         temperature=0.25
     )
     
+    # 자막이 없는 경우 구글 내부망 멀티모달 분석을 위해 Part.from_uri로 유튜브 URL 직접 주입
+    if has_transcript:
+        contents_payload = prompt
+    else:
+        part = types.Part.from_uri(file_uri=youtube_url, mime_type="video/*")
+        contents_payload = [part, prompt]
+
     last_error = None
     for model_name in MAIN_ENGINE_MODELS:
         try:
-            logger.info(f"Gemini 메인 엔진 모델 시도: {model_name}")
+            logger.info(f"Gemini 메인 엔진 모델 시도: {model_name} (직접 분석={not has_transcript})")
             response = client.models.generate_content(
                 model=model_name,
-                contents=prompt,
+                contents=contents_payload,
                 config=gen_config
             )
             # response.text가 None인 경우 (MAX_TOKENS 등) 다음 모델로 폴백

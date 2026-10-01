@@ -31,6 +31,35 @@ def parse_time_to_seconds(time_str: str) -> int:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
     return 0
 
+import base64
+
+def get_cookie_file_path() -> Optional[str]:
+    """환경변수 YOUTUBE_COOKIES_BASE64가 있으면 임시 파일로 디코딩하여 반환"""
+    cookies_b64 = os.getenv("YOUTUBE_COOKIES_BASE64", "").strip()
+    if not cookies_b64:
+        return None
+    try:
+        cookie_path = Path("/tmp/yt_cookies.txt")
+        if not cookie_path.exists():
+            decoded = base64.b64decode(cookies_b64).decode("utf-8", errors="ignore")
+            cookie_path.write_text(decoded, encoding="utf-8")
+        return str(cookie_path)
+    except Exception as e:
+        logger.warning(f"쿠키 파일 디코딩 실패: {e}")
+        return None
+
+def apply_proxy_and_cookies(ydl_opts: Dict[str, Any]):
+    """환경변수 기반 프록시(YOUTUBE_PROXY) 및 쿠키 적용"""
+    proxy = os.getenv("YOUTUBE_PROXY", "").strip()
+    if proxy:
+        ydl_opts["proxy"] = proxy
+        logger.info(f"유튜브 프록시 활성화: {proxy}")
+
+    cookie_file = get_cookie_file_path()
+    if cookie_file:
+        ydl_opts["cookiefile"] = cookie_file
+        logger.info("유튜브 쿠키 파일 적용 완료")
+
 def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
     video_id = extract_video_id(url)
     default_thumb = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
@@ -51,16 +80,17 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
-            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
             'http_headers': {
                 'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
             },
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'android', 'mweb'],
+                    'player_client': ['ios', 'android'],
                 }
             },
         }
+        apply_proxy_and_cookies(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             details["title"] = info.get("title", "")
@@ -236,7 +266,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'ffmpeg_location': ffmpeg_dir,
             'quiet': True,
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
             'http_headers': {
                 'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
             },
@@ -244,10 +274,11 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'fragment_retries': 3,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'android', 'mweb'],
+                    'player_client': ['ios', 'android'],
                 }
             },
         }
+        apply_proxy_and_cookies(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
