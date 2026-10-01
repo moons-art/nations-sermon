@@ -134,6 +134,15 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 'writesubtitles': True,
                 'writeautomaticsub': True,
                 'subtitleslangs': ['ko'],
+                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+                'http_headers': {
+                    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                },
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['ios', 'android'],
+                    }
+                },
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
