@@ -24,6 +24,11 @@ analysis_tasks: Dict[str, Dict[str, Any]] = {}
 # 관리자 대시보드용 분석 로그 (실패 로그 및 전체 기록)
 analysis_logs: list = []
 
+def get_kst_time_str() -> str:
+    from datetime import datetime, timezone, timedelta
+    kst = timezone(timedelta(hours=9))
+    return datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
+
 def record_analysis_log(task_id: str, url: str, status: str, error: Optional[str] = None):
     log_entry = {
         "id": f"log-{uuid.uuid4().hex[:6]}",
@@ -31,7 +36,7 @@ def record_analysis_log(task_id: str, url: str, status: str, error: Optional[str
         "youtube_url": url,
         "status": status,
         "error": error,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        "timestamp": get_kst_time_str(),
         "created_at": time.time()
     }
     analysis_logs.insert(0, log_entry)

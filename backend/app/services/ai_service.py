@@ -9,10 +9,9 @@ from app.config import GEMINI_API_KEY
 logger = logging.getLogger(__name__)
 
 # ─── AI 엔진 모델 정의 ───
-# 1. 메인 엔진: 유튜브 영상 직접 분석 및 숏츠 하이라이트/자막 추출
-MAIN_ENGINE_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash']
-# 2. 서브 엔진: 대량 텍스트 처리, 자막 정제 및 반복 파싱 작업 (비용 절감)
-SUB_ENGINE_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']
+# 메인 엔진: 3.8-flash 최우선 시도 -> 3.5-flash -> 3.5-flash-lite 자동 폴백
+MAIN_ENGINE_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+SUB_ENGINE_MODELS = ['gemini-3.5-flash-lite']
 
 
 # ─── 비용 절감 자막 압축 알고리즘 ───

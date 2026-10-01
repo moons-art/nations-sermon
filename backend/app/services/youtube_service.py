@@ -85,27 +85,22 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
             api = YouTubeTranscriptApi()
-            transcript_list = api.list(video_id)
-            target_transcript = None
-
+            
+            # 최신 표준 API: 한국어 자막 우선 검색 및 fetch
+            snippets = None
             try:
-                target_transcript = transcript_list.find_transcript(['ko', 'ko-KR', 'ko-kr'])
+                snippets = api.fetch(video_id, languages=['ko', 'ko-KR', 'ko-kr'])
             except Exception:
                 try:
-                    target_transcript = transcript_list.find_generated_transcript(['ko', 'ko-KR', 'ko-kr'])
-                except Exception:
-                    pass
-
-            if not target_transcript:
-                try:
+                    # 자동 생성 자막 또는 기본 자막 폴백
+                    transcript_list = api.list(video_id)
                     for t in transcript_list:
-                        target_transcript = t
+                        snippets = t.fetch()
                         break
                 except Exception:
                     pass
 
-            if target_transcript:
-                snippets = target_transcript.fetch()
+            if snippets:
                 lines = []
                 raw_snippets = []
                 for s in snippets:
