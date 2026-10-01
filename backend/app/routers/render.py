@@ -12,7 +12,7 @@ class ShortRenderItem(BaseModel):
     end_time: str
     duration: str
     sentences: List[Dict[str, Any]]
-    bgm: Optional[str] = "grace.mp3"
+    bgm: Optional[str] = "calm_piano.mp3"
     template: Optional[str] = "dark_minimal"
     platform: Optional[str] = "youtube"
     church_name: Optional[str] = ""

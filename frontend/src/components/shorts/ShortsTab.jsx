@@ -272,269 +272,198 @@ export default function ShortsTab({
 
       {hasShorts && (
         <>
-          {/* ───────────────────────────────────────
-              상단 CTA: 쇼츠영상 생성 버튼
-          ─────────────────────────────────────── */}
-          <div className="bg-[#1C1B18] rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#DA7756] flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+          {/* ── 상단 설정 바: 교회/채널명, 설교자, 배경음악 선택 ── */}
+          <div className="bg-white rounded-2xl border border-[#EAE8E1] p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* 교회 / 채널명 */}
               <div>
-                <p className="text-sm font-black text-white">
-                  쇼츠 영상 생성
-                </p>
-                <p className="text-[11px] text-white/60 mt-0.5">
-                  선택한 {selectedShortIds.length}개 하이라이트 → 실제 9:16 MP4 영상 제작
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              {showCreatedNotice ? (
-                <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold">
-                  <CheckCircle className="w-4 h-4" />
-                  <span>렌더링 큐 등록 완료!</span>
-                  <button
-                    onClick={() => onNavigateToShortsList?.()}
-                    className="ml-2 underline text-white/80 hover:text-white"
-                  >
-                    목록 보기 →
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isSubmitting || selectedShortIds.length === 0}
-                  onClick={handleBatchRender}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#DA7756] hover:bg-[#C56545] text-white text-sm font-bold disabled:opacity-50 transition-colors shadow-lg"
-                >
-                  {isSubmitting ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /><span>등록 중...</span></>
-                  ) : (
-                    <><Film className="w-4 h-4" /><span>{selectedShortIds.length}개 영상 생성</span></>
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* ── 설정 패널 (교회명 / 설교자 / BGM) ── */}
-          <div className="bg-white rounded-2xl p-5 border border-[#EAE8E1] grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* 교회명 */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#66635E] flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5 text-[#807D77]" />
-                <span>교회 / 채널 이름</span>
-              </label>
-              <input
-                type="text"
-                value={churchName}
-                onChange={e => setChurchName(e.target.value)}
-                placeholder="예: 오륜교회 예배공동체"
-                className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756]"
-              />
-            </div>
-
-            {/* 설교자 */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#66635E] flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-[#807D77]" />
-                <span>설교자</span>
-              </label>
-              <input
-                type="text"
-                value={preacher}
-                onChange={e => setPreacher(e.target.value)}
-                placeholder="예: 김은호 목사"
-                className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756]"
-              />
-            </div>
-
-            {/* BGM */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-[#66635E] flex items-center gap-1.5">
-                  <Music className="w-3.5 h-3.5 text-[#807D77]" />
-                  <span>배경음악 (BGM)</span>
+                <label className="text-[10px] font-bold text-[#66635E] flex items-center gap-1 mb-1">
+                  <Building2 className="w-3 h-3 text-[#807D77]" />
+                  <span>교회 / 채널 이름</span>
                 </label>
-
-                {bgm && bgm !== 'none' && (
-                  <button
-                    type="button"
-                    onClick={() => togglePreviewBgm(bgm)}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors ${
-                      previewingBgm === bgm
-                        ? 'bg-[#DA7756] text-white animate-pulse'
-                        : 'bg-[#EFECE3] text-[#66635E] hover:text-[#282622] hover:bg-[#E5E0D5]'
-                    }`}
-                    title="선택된 BGM 미리듣기"
-                  >
-                    {previewingBgm === bgm ? (
-                      <>
-                        <Pause className="w-3 h-3" />
-                        <span>정지</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>미리듣기</span>
-                      </>
-                    )}
-                  </button>
-                )}
+                <input
+                  type="text"
+                  value={churchName}
+                  onChange={(e) => setChurchName(e.target.value)}
+                  placeholder="예: 베이직교회, 우리교회"
+                  className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756] transition-colors"
+                />
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* 설교자 */}
+              <div>
+                <label className="text-[10px] font-bold text-[#66635E] flex items-center gap-1 mb-1">
+                  <User className="w-3 h-3 text-[#807D77]" />
+                  <span>설교자 이름</span>
+                </label>
+                <input
+                  type="text"
+                  value={preacher}
+                  onChange={(e) => setPreacher(e.target.value)}
+                  placeholder="예: 조정민 목사"
+                  className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756] transition-colors"
+                />
+              </div>
+
+              {/* 배경음악 (BGM) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold text-[#66635E] flex items-center gap-1">
+                    <Music className="w-3 h-3 text-[#807D77]" />
+                    <span>배경음악 (BGM)</span>
+                  </label>
+                  {bgm && bgm !== 'none' && (
+                    <button
+                      type="button"
+                      onClick={() => togglePreviewBgm(bgm)}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
+                        previewingBgm === bgm
+                          ? 'bg-[#DA7756] text-white animate-pulse'
+                          : 'bg-[#EFECE3] text-[#66635E] hover:text-[#282622]'
+                      }`}
+                    >
+                      {previewingBgm === bgm ? (
+                        <>
+                          <Pause className="w-2.5 h-2.5" />
+                          <span>정지</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>미리듣기</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <select
                   value={bgm}
-                  onChange={e => {
-                    const newBgm = e.target.value;
-                    setBgm(newBgm);
-                    if (previewingBgm) {
-                      togglePreviewBgm(newBgm);
-                    }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setBgm(val);
+                    if (previewingBgm) togglePreviewBgm(val);
                   }}
-                  className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756]"
+                  className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756] transition-colors cursor-pointer"
                 >
-                  {bgmList.map(item => (
-                    <option key={item.id} value={item.id}>{item.name} — {item.desc}</option>
+                  {bgmList.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {item.desc}
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
           </div>
 
-
-          {/* ── 템플릿 선택 (접기/펼치기) ── */}
-          <div className="bg-white rounded-2xl border border-[#EAE8E1] overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowTemplates(!showTemplates)}
-              className="w-full p-5 flex items-center justify-between hover:bg-[#FAF9F5] transition-colors"
-            >
-              <div className="flex items-center gap-3">
+          {/* ── 템플릿 선택 (항상 작게 상시 노출, 화면 줄어들 때 커지지 않고 PC 크기 유지) ── */}
+          <div className="bg-white rounded-2xl border border-[#EAE8E1] p-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <Layers className="w-3.5 h-3.5 text-[#DA7756]" />
                 <span className="text-xs font-bold text-[#282622] uppercase tracking-wider font-mono">템플릿 선택</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-lg bg-[#EFECE3] text-[#66635E] font-semibold">
-                  {selectedTemplate?.name || '블랙 미니멀'}
-                </span>
               </div>
-              {showTemplates
-                ? <ChevronUp className="w-4 h-4 text-[#807D77]" />
-                : <ChevronDown className="w-4 h-4 text-[#807D77]" />}
-            </button>
+              <span className="text-[11px] px-2 py-0.5 rounded-lg bg-[#EFECE3] text-[#66635E] font-semibold">
+                {selectedTemplate?.name || '블랙 미니멀'}
+              </span>
+            </div>
 
-            {showTemplates && (
-              <div className="px-3 sm:px-5 pb-5 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 border-t border-[#EAE8E1] pt-4">
-                {templateList.map(tpl => {
-                  const isSelected = template === tpl.id;
-                  return (
-                    <div
-                      key={tpl.id}
-                      onClick={() => setTemplate(tpl.id)}
-                      className={`group cursor-pointer rounded-xl p-1.5 sm:p-2 border-2 transition-all flex flex-col items-center gap-1.5 sm:gap-2 relative select-none ${
-                        isSelected ? 'border-[#DA7756] bg-[#FAF9F5]' : 'border-[#EAE8E1] bg-white hover:border-[#DCD9CF]'
-                      }`}
-                    >
-                      {/* 9:16 비율 실감형 미니어처 */}
-                      <div className={`w-full aspect-[9/16] rounded-lg ${tpl.bgColor} p-1 sm:p-1.5 flex flex-col justify-between items-center relative overflow-hidden shadow-inner border border-black/10 text-center`}>
-                        {/* 풀스크린/투명일 때 배경 비디오 이미지 */}
-                        {(tpl.bgType === 'fullscreen' || tpl.bgType === 'transparent') && (
-                          <img
-                            src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=300&auto=format&fit=crop&q=80"
-                            alt=""
-                            className="absolute inset-0 w-full h-full object-cover opacity-60"
-                          />
-                        )}
+            {/* 7개 템플릿: 화면이 줄어들면 너무 작아지지 않고 2줄(4열/3열)로 내려오도록 반응형 그리드 적용 */}
+            <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
+              {templateList.map(tpl => {
+                const isSelected = template === tpl.id;
+                return (
+                  <div
+                    key={tpl.id}
+                    onClick={() => setTemplate(tpl.id)}
+                    className={`group cursor-pointer rounded-xl p-1.5 border-2 transition-all flex flex-col items-center gap-1.5 relative select-none ${
+                      isSelected ? 'border-[#DA7756] bg-[#FAF9F5]' : 'border-[#EAE8E1] bg-white hover:border-[#DCD9CF]'
+                    }`}
+                  >
+                    {/* 9:16 비율 실감형 미니어처 */}
+                    <div className={`w-full aspect-[9/16] rounded-lg ${tpl.bgColor} p-1 flex flex-col justify-between items-center relative overflow-hidden shadow-inner border border-black/10 text-center`}>
+                      {(tpl.bgType === 'fullscreen' || tpl.bgType === 'transparent') && (
+                        <img
+                          src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=300&auto=format&fit=crop&q=80"
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-cover opacity-60"
+                        />
+                      )}
 
-                        {/* 상단: 제목 & 소제목 (실제 텍스트 - 지금보다 더 아래로 이동) */}
-                        <div className={`relative z-10 w-full leading-tight ${tpl.bgType === 'wide' ? 'pt-4 sm:pt-5 pb-1' : 'pt-3 sm:pt-4 pb-1'}`}>
-                          <p className={`text-[7px] sm:text-[9.5px] font-black tracking-tighter truncate ${tpl.qColor}`}>
-                            열심히 해도 목마른 이유
-                          </p>
-                          <p className={`text-[5px] sm:text-[7.5px] font-semibold truncate ${tpl.aColor} opacity-90 scale-90`}>
-                            당신의 열심의 정체
-                          </p>
-                        </div>
-
-                        {/* 중단: 비디오 영역
-                            - 와이드 3종: 영상 크기가 위아래로 훨씬 길고(aspect-[16/15]), 위아래 배경 최소화, 자막이 영상 안 하단에 오버레이
-                            - 미니멀/투명 미니멀: 중앙 가로 16:9 영상 박스 노출
-                        */}
-                        {tpl.bgType === 'wide' ? (
-                          <div className="relative z-10 w-full aspect-[16/15] bg-black rounded overflow-hidden shadow-md my-0 flex flex-col justify-end">
-                            <img
-                              src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=280&auto=format&fit=crop&q=80"
-                              alt=""
-                              className="absolute inset-0 w-full h-full object-cover opacity-90 scale-135"
-                            />
-                            {/* 영상 중앙 재생 아이콘 */}
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="w-3.5 h-3.5 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-xs">
-                                <Play className="w-1.5 h-1.5 fill-white text-white ml-0.5" />
-                              </div>
-                            </div>
-                            {/* 와이드 자막: 영상 안쪽 아래에 배치 */}
-                            <div className="relative z-10 w-full bg-black/95 px-1 py-0.5 border-t border-white/20 mb-1 mx-auto max-w-[92%] rounded">
-                              <p className="text-[5.5px] sm:text-[7px] text-white font-medium leading-[1.15] break-keep line-clamp-2">
-                                오늘 하나님이 여러분에게 주시는 말씀은 하나님께 나아오라는 것입니다.
-                              </p>
-                            </div>
-                          </div>
-                        ) : (tpl.bgType === 'minimal' || tpl.bgType === 'transparent') ? (
-                          <div className="relative z-10 w-full aspect-video rounded bg-black/60 border border-white/20 flex items-center justify-center overflow-hidden my-auto shadow-sm">
-                            <img
-                              src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=200&auto=format&fit=crop&q=80"
-                              alt=""
-                              className="w-full h-full object-cover opacity-80"
-                            />
-                            <div className="absolute w-3.5 h-3.5 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-xs">
-                              <Play className="w-1.5 h-1.5 fill-white text-white ml-0.5" />
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {/* 하단: 자막 (미니멀/투명/풀스크린) & 교회명 - 풀스크린/미니멀 자막을 더 위로 올림 */}
-                        <div className={`relative z-10 w-full space-y-1 ${tpl.bgType === 'wide' ? 'pb-0.5 pt-0.5' : 'pb-3.5'}`}>
-                          {tpl.bgType !== 'wide' && (
-                            <div className="w-full bg-black/95 px-1 py-1 rounded border border-white/15 shadow-sm mb-1">
-                              <p className="text-[5.5px] sm:text-[7px] text-white font-medium leading-[1.15] break-keep line-clamp-2">
-                                오늘 하나님이 여러분에게 주시는 말씀은 하나님께 나아오라는 것입니다.
-                              </p>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-center gap-0.5 opacity-70">
-                            <span className={`text-[6px] ${tpl.qColor}`}>✝</span>
-                            <span className={`text-[5px] sm:text-[6px] font-bold ${tpl.qColor} truncate max-w-[50px]`}>
-                              {churchName || '교회이름'}
-                            </span>
-                          </div>
-                        </div>
+                      {/* 상단 제목 & 소제목 (3배 크기 확대, 검은 글자는 그림자 제거) */}
+                      <div className={`relative z-10 w-full leading-tight px-0.5 ${tpl.bgType === 'wide' ? 'pt-2 pb-0.5' : 'pt-2 pb-0.5'}`}>
+                        <p className={`text-[10px] sm:text-[11px] font-black tracking-tighter truncate ${tpl.qColor.includes('white') ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''} ${tpl.qColor}`}>
+                          항상 목마른 여러분에게
+                        </p>
+                        <p className={`text-[8.5px] sm:text-[9.5px] font-extrabold truncate ${tpl.aColor.includes('white') ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''} ${tpl.aColor} mt-0.5`}>
+                          당신의 열심의 정체
+                        </p>
                       </div>
 
-                      {/* 템플릿 명칭 */}
-                      <span className={`text-[10px] sm:text-xs font-bold truncate block ${isSelected ? 'text-[#DA7756]' : 'text-[#282622]'}`}>
-                        {tpl.name}
-                      </span>
-
-                      {isSelected && (
-                        <div className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-[#DA7756] text-white flex items-center justify-center shadow">
-                          <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3]" />
+                      {tpl.bgType === 'wide' ? (
+                        <div className="relative z-10 w-full aspect-[16/14] bg-black rounded overflow-hidden shadow-md my-0 flex flex-col justify-end">
+                          <img
+                            src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=280&auto=format&fit=crop&q=80"
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover opacity-90 scale-135"
+                          />
+                          {/* 와이드 내부 자막: 얇고 정돈된 외곽선 */}
+                          <div className="relative z-10 w-full px-0.5 py-0.5 mb-0.5 mx-auto max-w-[95%] text-center">
+                            <p className="text-[7px] sm:text-[8px] text-white font-black leading-tight break-keep line-clamp-2 [text-shadow:_-0.5px_-0.5px_0_#000,_0.5px_-0.5px_0_#000,_-0.5px_0.5px_0_#000,_0.5px_0.5px_0_#000]">
+                              오늘 하나님이<br />주시는 생명의 말씀
+                            </p>
+                          </div>
                         </div>
-                      )}
+                      ) : (tpl.bgType === 'minimal' || tpl.bgType === 'transparent') ? (
+                        <div className="relative z-10 w-full aspect-video rounded bg-black/60 border border-white/20 flex items-center justify-center overflow-hidden my-auto shadow-sm">
+                          <img
+                            src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=200&auto=format&fit=crop&q=80"
+                            alt=""
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                          <div className="absolute w-3 h-3 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-xs">
+                            <Play className="w-1.5 h-1.5 fill-white text-white ml-0.5" />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* 하단: 자막 (검은 배경카드 제거, 얇고 깔끔한 외곽선, 2줄, 위치 1줄 위로 상향) 및 교회이름 */}
+                      <div className={`relative z-10 w-full space-y-0.5 ${tpl.bgType === 'wide' ? 'pb-0.5' : 'pb-1'}`}>
+                        {tpl.bgType !== 'wide' && (
+                          <div className="w-full px-1 py-0.5 -mt-1 mb-0.5 text-center">
+                            <p className="text-[7px] sm:text-[8px] text-white font-black leading-tight break-keep line-clamp-2 [text-shadow:_-0.5px_-0.5px_0_#000,_0.5px_-0.5px_0_#000,_-0.5px_0.5px_0_#000,_0.5px_0.5px_0_#000]">
+                              오늘 하나님이<br />주시는 생명의 말씀
+                            </p>
+                          </div>
+                        )}
+                        <span className={`text-[6px] font-bold ${tpl.qColor} truncate block opacity-75`}>
+                          ✝ {churchName || '교회이름'}
+                        </span>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+
+                    <span className={`text-[9.5px] sm:text-[11px] font-bold truncate block ${isSelected ? 'text-[#DA7756]' : 'text-[#282622]'}`}>
+                      {tpl.name}
+                    </span>
+
+                    {isSelected && (
+                      <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-[#DA7756] text-white flex items-center justify-center shadow">
+                        <Check className="w-2 h-2 stroke-[3]" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          {/* ── 하이라이트 쇼츠 선택 ── */}
+          {/* ── 하이라이트 쇼츠 선택 및 상단 컨트롤 바 ── */}
           <div className="space-y-4">
-            {/* 컨트롤 바 */}
             <div className="bg-white rounded-2xl p-4 border border-[#EAE8E1] flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-[#282622] font-mono">
+                  가장 감동적인 설교 하이라이트 5개
+                </span>
+                <span className="text-[#DCD9CF]">|</span>
                 <button
                   type="button"
                   onClick={handleSelectAll}
@@ -543,23 +472,29 @@ export default function ShortsTab({
                   {selectedShortIds.length === displayedShorts.length
                     ? <CheckSquare className="w-4 h-4 text-[#DA7756]" />
                     : <Square className="w-4 h-4 text-[#DCD9CF]" />}
-                  <span>전체 선택 ({selectedShortIds.length}/{displayedShorts.length})</span>
+                  <span>전체선택 ({selectedShortIds.length}/{displayedShorts.length})</span>
                 </button>
-                <span className="text-[#DCD9CF]">|</span>
-                <span className="text-xs font-bold text-[#282622] font-mono">AI 선정 하이라이트 {displayedShorts.length}개</span>
               </div>
 
-              {/* 경고: URL 없을 때 */}
-              {!youtubeUrl && (
-                <div className="flex items-center gap-1.5 text-[11px] text-amber-600 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span>유튜브 URL이 없으면 실제 영상을 다운로드할 수 없습니다</span>
-                </div>
-              )}
+              {/* 바로 옆에 위치한 [모두 영상생성] 버튼 */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isSubmitting || selectedShortIds.length === 0}
+                  onClick={handleBatchRender}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#DA7756] hover:bg-[#C56545] text-white text-xs font-bold disabled:opacity-50 transition-all shadow-sm active:scale-95 cursor-pointer"
+                >
+                  {isSubmitting ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>영상 생성 중...</span></>
+                  ) : (
+                    <><Film className="w-3.5 h-3.5" /><span>모두 영상생성 ({selectedShortIds.length}개)</span></>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* 쇼츠 카드 그리드 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* 쇼츠 카드 그리드: 반 크기로 컴팩트하게 축소 (모바일 2열, PC 3~4열) */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {displayedShorts.map((short, idx) => (
                 <HighlightCard
                   key={short.id}
@@ -573,32 +508,16 @@ export default function ShortsTab({
                   youtubeUrl={youtubeUrl}
                   template={template}
                   churchName={churchName}
+                  onUpdateTitles={(q, a) => {
+                    const updated = sermonData.shorts.map(s =>
+                      s.id === short.id ? { ...s, title_question: q, title_answer: a, title: a } : s
+                    );
+                    setSermonData({ ...sermonData, shorts: updated });
+                  }}
                 />
               ))}
             </div>
           </div>
-
-          {/* ── 하단 고정 영상 생성 버튼 (리마인더) ── */}
-          {!showCreatedNotice && selectedShortIds.length > 0 && (
-            <div className="sticky bottom-4 flex justify-center z-20">
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={handleBatchRender}
-                className="flex items-center gap-2.5 px-8 py-3.5 rounded-2xl bg-[#DA7756] hover:bg-[#C56545] text-white text-sm font-bold shadow-2xl disabled:opacity-60 transition-all hover:scale-105 active:scale-95"
-              >
-                {isSubmitting ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /><span>렌더링 큐 등록 중...</span></>
-                ) : (
-                  <>
-                    <Film className="w-4 h-4" />
-                    <span>선택한 {selectedShortIds.length}개 쇼츠 영상 생성</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          )}
         </>
       )}
 

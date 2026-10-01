@@ -87,7 +87,7 @@ export default function SubtitleModal({ shortItem, onClose, onSave, saveLabel = 
               {shortItem.startTime} ~ {shortItem.endTime} ({shortItem.duration})
             </div>
             <h3 className="text-sm font-bold text-[#282622] mt-0.5 truncate max-w-md">
-              쇼츠 텍스트 & 자막 편집
+              쇼츠 자막 수정
             </h3>
           </div>
           <button
@@ -98,36 +98,34 @@ export default function SubtitleModal({ shortItem, onClose, onSave, saveLabel = 
           </button>
         </div>
 
-        {/* 상단 2줄 헤더 텍스트 편집 영역 (유튜브 레퍼런스 스타일) */}
-        <div className="p-4 bg-white border-b border-[#EAE8E1] space-y-2.5">
-          <div className="text-[11px] font-bold text-[#807D77] uppercase tracking-wider">
-            유튜브 쇼츠 상단 글자 배치
-          </div>
-          <div className="space-y-1.5">
+        {/* 제목 & 소제목 편집 */}
+        <div className="p-4 bg-white border-b border-[#EAE8E1] space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-semibold text-[#66635E] block mb-0.5">
-                상단 1줄: 궁금증 유발 제목 (화이트 볼드)
+              <label className="text-[10px] font-bold text-[#66635E] block mb-1">
+                제목
               </label>
               <input
                 type="text"
                 value={titleQuestion}
                 onChange={(e) => setTitleQuestion(e.target.value)}
-                placeholder="예: 인생의 쓴맛 앞에서"
+                placeholder="제목"
                 className="w-full text-xs font-bold text-[#282622] bg-[#FAF9F5] border border-[#E0DED7] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#DA7756]"
               />
             </div>
             <div>
-              <label className="text-[10px] font-semibold text-[#DA7756] block mb-0.5">
-                상단 2줄: 기대 유발 대답/내용 (골드 옐로우 볼드)
+              <label className="text-[10px] font-bold text-[#DA7756] block mb-1">
+                소제목
               </label>
               <input
                 type="text"
                 value={titleAnswer}
                 onChange={(e) => setTitleAnswer(e.target.value)}
-                placeholder="예: 마라의 쓴물이 단물로 변하는 순간"
-                className="w-full text-xs font-bold text-[#C56545] bg-[#FAF9F5] border border-[#E0DED7] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#DA7756]"
+                placeholder="소제목"
+                className="w-full text-xs font-bold text-[#DA7756] bg-[#FAF9F5] border border-[#E0DED7] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#DA7756]"
               />
             </div>
+          </div>
 
             {/* BGM 변경 및 미리듣기 */}
             <div className="pt-1 border-t border-[#F2EFE8]">
@@ -177,7 +175,6 @@ export default function SubtitleModal({ shortItem, onClose, onSave, saveLabel = 
               </select>
             </div>
           </div>
-        </div>
 
         {/* 문장 목록 */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">

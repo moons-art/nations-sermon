@@ -43,6 +43,7 @@ export default function HighlightCard({
   youtubeUrl,
   template = 'dark_minimal',
   churchName = '예배공동체',
+  onUpdateTitles,
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -57,10 +58,11 @@ export default function HighlightCard({
   const startSeconds = parseTimeToSeconds(short.startTime);
   const endSeconds = parseTimeToSeconds(short.endTime) || startSeconds + 50;
 
-  // 템플릿별 시각 디자인 프리셋 (모든 템플릿: 검은 배경 박스 제거, 글자 외곽선)
+  // 템플릿별 시각 디자인 프리셋
   const templateStyles = {
     cinema_letterbox: {
       cardBg: 'bg-[#0B0C0E]',
+      bgType: 'wide',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
       subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
@@ -69,6 +71,7 @@ export default function HighlightCard({
     },
     blue_wide: {
       cardBg: 'bg-[#1E62D0]',
+      bgType: 'wide',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
       subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
@@ -77,6 +80,7 @@ export default function HighlightCard({
     },
     yellow_wide: {
       cardBg: 'bg-[#F4CF42]',
+      bgType: 'wide',
       qColor: 'text-[#121212]',
       aColor: 'text-[#181A22]',
       subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
@@ -85,68 +89,46 @@ export default function HighlightCard({
     },
     transparent_minimal: {
       cardBg: 'bg-[#1C1D22]',
+      bgType: 'transparent',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      subBg: 'bg-black/90 text-white border-white/20 font-black shadow-lg',
       tagBg: 'bg-white/10 text-white/90',
     },
     dark_minimal: {
       cardBg: 'bg-[#0E0E10]',
+      bgType: 'minimal',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      subBg: 'bg-black/90 text-white border-white/20 font-black shadow-lg',
       tagBg: 'bg-white/10 text-white/90',
     },
     yellow_minimal: {
       cardBg: 'bg-[#F4CF42]',
+      bgType: 'minimal',
       qColor: 'text-[#121212]',
       aColor: 'text-[#181A22]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      subBg: 'bg-black/90 text-white border-white/20 font-black shadow-lg',
       tagBg: 'bg-black/10 text-black',
     },
     full_cinema: {
-      cardBg: 'bg-slate-950',
+      cardBg: 'bg-black',
+      bgType: 'fullscreen',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      subBg: 'bg-black/90 text-white border-white/20 font-black shadow-lg',
       tagBg: 'bg-white/20 text-white',
-    },
-    // 기존 호환
-    vivid_blue: {
-      cardBg: 'bg-[#1E62D0]',
-      qColor: 'text-white',
-      aColor: 'text-[#FFE600]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
-      tagBg: 'bg-white/20 text-white',
-      isLetterbox: true,
-    },
-    yellow_frame: {
-      cardBg: 'bg-[#F4CF42]',
-      qColor: 'text-[#121212]',
-      aColor: 'text-[#181A22]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
-      tagBg: 'bg-black/10 text-black',
-      isLetterbox: true,
-    },
-    modern_grey: {
-      cardBg: 'bg-[#0E0E10]',
-      qColor: 'text-white',
-      aColor: 'text-[#FFE600]',
-      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
-      tagBg: 'bg-white/10 text-white/90',
     },
   };
 
   const currentTpl = templateStyles[template] || templateStyles.dark_minimal;
-
-  // 유튜브 썸네일 고화질 URL
   const thumbnailUrl = videoId
     ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
-    : 'https://images.unsplash.com/photo-1507692049790-de58290a4334?w=600&auto=format&fit=crop&q=80';
+    : 'https://images.unsplash.com/photo-1507692049790-de58290a4334?w=500&auto=format&fit=crop&q=80';
 
   return (
     <div
-      className={`bg-white rounded-2xl p-4 border transition-all flex flex-col justify-between shadow-xs ${
+      className={`bg-white rounded-2xl p-3 border-2 transition-all flex flex-col justify-between shadow-xs ${
         isSelected
           ? 'border-[#DA7756] ring-2 ring-[#DA7756]/20'
           : 'border-[#EAE8E1] hover:border-[#DCD9CF]'
@@ -154,35 +136,34 @@ export default function HighlightCard({
     >
       <div>
         {/* 상단 번호 & 타임스탬프 & 선택 체크박스 */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-lg bg-[#282622] text-white font-mono text-xs font-bold flex items-center justify-center">
+        <div className="flex items-center justify-between gap-1.5 mb-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-5 h-5 rounded-md bg-[#282622] text-white font-mono text-[10px] font-bold flex items-center justify-center flex-shrink-0">
               #{index + 1}
             </span>
-            <span className="text-xs font-mono text-[#807D77] flex items-center gap-1.5 bg-[#FAF9F5] px-2.5 py-1 rounded-lg border border-[#EAE8E1]">
-              <Clock className="w-3.5 h-3.5 text-[#A5A29B]" />
-              {short.startTime} ~ {short.endTime} ({short.duration})
+            <span className="text-[10px] font-mono text-[#807D77] flex items-center gap-1 bg-[#FAF9F5] px-1.5 py-0.5 rounded border border-[#EAE8E1] truncate">
+              <Clock className="w-3 h-3 text-[#A5A29B] flex-shrink-0" />
+              {short.startTime}~{short.endTime}
             </span>
           </div>
 
           <button
             type="button"
             onClick={() => onToggleSelect(short.id)}
-            className="text-[#807D77] hover:text-[#DA7756] p-1"
+            className="text-[#807D77] hover:text-[#DA7756] p-0.5"
             title="쇼츠 선택"
           >
             {isSelected ? (
-              <CheckSquare className="w-5 h-5 text-[#DA7756]" />
+              <CheckSquare className="w-4 h-4 text-[#DA7756]" />
             ) : (
-              <Square className="w-5 h-5 text-[#DCD9CF]" />
+              <Square className="w-4 h-4 text-[#DCD9CF]" />
             )}
           </button>
         </div>
 
-        {/* 9:16 비율 실시간 비디오 / 템플릿 프리뷰 플레이어 */}
-        <div className="relative w-full aspect-[9/14] rounded-2xl overflow-hidden border border-[#EAE8E1] shadow-inner mb-3.5 bg-black select-none">
+        {/* 9:16 비율 실시간 비디오 / 템플릿 프리뷰 플레이어 (선택된 템플릿 실시간 반영) */}
+        <div className="relative w-full aspect-[9/13.5] rounded-xl overflow-hidden border border-[#EAE8E1] shadow-inner mb-2 bg-black select-none">
           {short.video_url ? (
-            // 백엔드에서 렌더링 완료된 실제 MP4 비디오가 있을 때
             <video
               src={short.video_url}
               controls
@@ -190,7 +171,6 @@ export default function HighlightCard({
               className="w-full h-full object-cover"
             />
           ) : isPlaying && videoId ? (
-            // 사용자가 카드 내에서 해당 구간을 바로 재생할 때 (실제 설교 영상 임베드)
             <div className="relative w-full h-full bg-black">
               <iframe
                 title={`short-player-${index}`}
@@ -202,107 +182,159 @@ export default function HighlightCard({
               <button
                 type="button"
                 onClick={() => setIsPlaying(false)}
-                className="absolute top-2 right-2 z-20 px-2 py-1 rounded-lg bg-black/80 text-white text-[10px] font-bold hover:bg-black flex items-center gap-1 border border-white/20"
+                className="absolute top-1.5 right-1.5 z-20 px-1.5 py-0.5 rounded bg-black/80 text-white text-[9px] font-bold hover:bg-black flex items-center gap-1 border border-white/20"
               >
-                <RotateCcw className="w-3 h-3" />
-                <span>템플릿 보기</span>
+                <RotateCcw className="w-2.5 h-2.5" />
+                <span>템플릿</span>
               </button>
             </div>
           ) : (
-            // 대기 상태: 템플릿 디자인 오버레이 + 실제 유튜브 비디오 프리뷰
-            <div className={`relative w-full h-full flex flex-col justify-between p-3.5 ${currentTpl.cardBg}`}>
-              {/* 비디오 배경 썸네일 */}
-              <div className="absolute inset-0 overflow-hidden">
-                <img
-                  src={thumbnailUrl}
-                  alt="설교 영상 썸네일"
-                  className="w-full h-full object-cover opacity-60 filter blur-[0.5px] scale-105 transition-transform duration-500 hover:scale-110"
-                />
-                <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-transparent to-black/90 pointer-events-none" />
-              </div>
-
-              {/* 상단: 템플릿 헤더 (질문 & 답변 - 위치 아래로 내림) */}
-              <div className="relative z-10 space-y-1 text-center pt-4 pb-1">
-                <div className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/20 backdrop-blur-xs text-white/90">
-                  {short.duration} 핵심
+            <div className={`relative w-full h-full flex flex-col justify-between p-2 select-none overflow-hidden ${currentTpl.cardBg}`}>
+              {/* 풀스크린 / 투명 미니멀인 경우 전체 배경 썸네일 (풀스크린은 썸네일이 선명하게 보이도록 고투명도 적용) */}
+              {(currentTpl.bgType === 'fullscreen' || currentTpl.bgType === 'transparent') && (
+                <div className="absolute inset-0 overflow-hidden">
+                  <img
+                    src={thumbnailUrl}
+                    alt="설교 영상 썸네일"
+                    className={`w-full h-full object-cover ${currentTpl.bgType === 'fullscreen' ? 'opacity-90' : 'opacity-70'} scale-105`}
+                  />
+                  <div className={`absolute inset-0 ${currentTpl.bgType === 'fullscreen' ? 'bg-gradient-to-b from-black/70 via-transparent to-black/85' : 'bg-gradient-to-b from-black/80 via-transparent to-black/90'} pointer-events-none`} />
                 </div>
-                <h4 className={`text-xs font-bold leading-tight line-clamp-1 drop-shadow-md ${currentTpl.qColor}`}>
+              )}
+
+              {/* 상단: 템플릿 헤더 (검은 글자일 때는 검은 그림자 제거) */}
+              <div className={`relative z-10 w-full text-center px-1 leading-tight ${currentTpl.isLetterbox ? 'pt-2 pb-1' : 'pt-2.5 pb-1'}`}>
+                <h4 className={`text-base sm:text-[17px] font-black leading-tight tracking-tight line-clamp-2 ${currentTpl.qColor.includes('white') ? 'drop-shadow-[0_2px_4px_rgba(0,0,0,0.85)]' : ''} ${currentTpl.qColor}`}>
                   {questionTitle}
                 </h4>
-                <p className={`text-sm font-extrabold leading-tight line-clamp-1 drop-shadow-md ${currentTpl.aColor}`}>
+                <p className={`text-xs sm:text-[13px] font-black leading-snug line-clamp-1 mt-1 ${currentTpl.aColor.includes('white') ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)]' : ''} ${currentTpl.aColor}`}>
                   {answerTitle}
                 </p>
               </div>
 
-              {/* 중앙: 재생 버튼 (누르면 해당 구간 실제 영상 즉시 재생) */}
-              <div className="relative z-10 flex flex-col items-center justify-center my-auto">
-                <button
-                  type="button"
-                  onClick={() => setIsPlaying(true)}
-                  className="group/btn w-12 h-12 rounded-full bg-[#DA7756] hover:bg-[#C56545] text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95"
-                  title="이 구간 영상 미리보기 재생"
-                >
-                  <Play className="w-5 h-5 fill-white ml-0.5 group-hover/btn:scale-105 transition-transform" />
-                </button>
-                <span className="text-[10px] text-white/90 font-medium mt-2 bg-black/60 backdrop-blur-xs px-2 py-0.5 rounded-md border border-white/10">
-                  구간 영상 재생 ({short.startTime}~{short.endTime})
-                </span>
-              </div>
-
-              {/* 하단: 첫 번째 자막 및 교회 로고 (자막 위치를 더 위로 올림) */}
-              <div className="relative z-10 space-y-2 text-center pb-2">
-                <div className={`p-2.5 rounded-xl border backdrop-blur-md text-[11px] font-medium leading-snug line-clamp-2 shadow-sm ${currentTpl.subBg}`}>
-                  "{firstSubtitle}"
+              {/* 중앙 영상 썸네일 및 재생 버튼 영역 */}
+              {currentTpl.isLetterbox ? (
+                /* 와이드 계열 (와이드, 블루 와이드, 옐로우 와이드): 템플릿 프레임 내부 중앙에 영상 배치 */
+                <div className="relative z-10 w-full aspect-[16/11] bg-black rounded-lg overflow-hidden shadow-md my-auto flex flex-col justify-end border border-black/20 group/play">
+                  <img
+                    src={thumbnailUrl}
+                    alt="설교 영상 썸네일"
+                    className="absolute inset-0 w-full h-full object-cover opacity-90 scale-110"
+                  />
+                  {/* 중앙 재생 버튼 */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/play:bg-black/10 transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setIsPlaying(true)}
+                      className="w-9 h-9 rounded-full bg-[#DA7756] hover:bg-[#C56545] text-white flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                      title="이 구간 영상 미리보기 재생"
+                    >
+                      <Play className="w-4 h-4 fill-white ml-0.5" />
+                    </button>
+                  </div>
+                  {/* 영상 내부 하단 자막: 얇고 선명한 1px 검은 외곽선 적용 */}
+                  <div className="relative z-10 w-full px-2 py-1 mb-1 mx-auto max-w-[95%] text-center">
+                    <p className="text-[11px] sm:text-[12px] text-white font-black leading-snug break-keep line-clamp-2 [text-shadow:_-1px_-1px_0_#000,_1px_-1px_0_#000,_-1px_1px_0_#000,_1px_1px_0_#000]">
+                      "{firstSubtitle}"
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center justify-center gap-1.5 text-[9px] text-white/80 font-medium opacity-80">
-                  <span>{churchName.replace('\n', ' ')}</span>
+              ) : currentTpl.bgType === 'fullscreen' ? (
+                /* 풀스크린 계열: 배경에 영상이 꽉 차고 중앙에 재생 버튼 배치 */
+                <div className="relative z-10 flex flex-col items-center justify-center my-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsPlaying(true)}
+                    className="w-11 h-11 rounded-full bg-[#DA7756] hover:bg-[#C56545] text-white flex items-center justify-center shadow-xl transition-transform hover:scale-105 active:scale-95 cursor-pointer border-2 border-white/30"
+                    title="이 구간 영상 미리보기 재생"
+                  >
+                    <Play className="w-5 h-5 fill-white ml-0.5" />
+                  </button>
+                </div>
+              ) : (
+                /* 미니멀 계열 (블랙 미니멀, 옐로우 미니멀, 투명 미니멀): 영상 영역이 명확히 보이도록 16:9 비디오 썸네일 박스 렌더링 */
+                <div className="relative z-10 w-full aspect-video bg-black/80 rounded-lg overflow-hidden shadow-md my-auto flex items-center justify-center border border-white/20 group/play">
+                  <img
+                    src={thumbnailUrl}
+                    alt="설교 영상 썸네일"
+                    className="absolute inset-0 w-full h-full object-cover opacity-85"
+                  />
+                  <div className="absolute inset-0 bg-black/25 group-hover/play:bg-black/10 transition-colors" />
+                  <button
+                    type="button"
+                    onClick={() => setIsPlaying(true)}
+                    className="relative z-10 w-9 h-9 rounded-full bg-[#DA7756] hover:bg-[#C56545] text-white flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                    title="이 구간 영상 미리보기 재생"
+                  >
+                    <Play className="w-4 h-4 fill-white ml-0.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* 하단: 자막(검은 배경카드 제거, 얇고 깔끔한 1px 검은 테두리 씌움, 2줄 표시) 및 교회 로고 */}
+              <div className="relative z-10 w-full space-y-2 text-center pb-2">
+                {currentTpl.isLetterbox ? null : (
+                  <div className="px-1 text-center -mt-2 mb-1 min-h-[2.85rem] flex items-center justify-center">
+                    <p className="text-xs sm:text-[13.5px] text-white font-black leading-snug break-keep line-clamp-2 [text-shadow:_-1px_-1px_0_#000,_1px_-1px_0_#000,_-1px_1px_0_#000,_1px_1px_0_#000]">
+                      "{firstSubtitle}"
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center justify-center gap-1 text-[9.5px] font-bold opacity-80 truncate">
+                  <span className={currentTpl.isLetterbox ? currentTpl.qColor : 'text-white'}>
+                    ✝ {churchName.replace('\n', ' ') || '예배공동체'}
+                  </span>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* 하단 텍스트 정보 */}
-        <div className="space-y-1 pt-1">
-          <div className="text-[11px] font-bold text-[#807D77] uppercase tracking-wider flex items-center justify-between">
-            <span>추출된 하이라이트</span>
+        {/* ── 인라인 제목 및 소제목 수정칸 (노출형 입력 필드) ── */}
+        <div className="space-y-1.5 pt-1">
+          <div className="text-[10px] font-bold text-[#807D77] uppercase tracking-wider flex items-center justify-between">
+            <span>제목 · 소제목 편집</span>
             {videoId && (
               <a
                 href={`https://www.youtube.com/watch?v=${videoId}&t=${startSeconds}s`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-[10px] text-[#DA7756] hover:underline flex items-center gap-0.5 font-normal"
+                className="text-[9.5px] text-[#DA7756] hover:underline flex items-center gap-0.5"
               >
-                <span>유튜브에서 보기</span>
+                <span>유튜브</span>
                 <ExternalLink className="w-2.5 h-2.5" />
               </a>
             )}
           </div>
-          <h3 className="text-sm font-bold text-[#282622] leading-snug line-clamp-1">
-            {short.title}
-          </h3>
-          <p className="text-xs text-[#66635E] line-clamp-2 leading-relaxed">
-            {short.summary}
-          </p>
+
+          <div className="space-y-1">
+            <input
+              type="text"
+              value={questionTitle}
+              onChange={(e) => onUpdateTitles?.(e.target.value, answerTitle)}
+              placeholder="제목 (상단 1줄)"
+              className="w-full text-xs font-bold text-[#282622] bg-[#FAF9F5] border border-[#E0DED7] rounded-lg px-2 py-1 focus:outline-none focus:border-[#DA7756]"
+              title="상단 1줄 제목 편집"
+            />
+            <input
+              type="text"
+              value={answerTitle}
+              onChange={(e) => onUpdateTitles?.(questionTitle, e.target.value)}
+              placeholder="소제목 (상단 2줄)"
+              className="w-full text-xs font-bold text-[#DA7756] bg-[#FAF9F5] border border-[#E0DED7] rounded-lg px-2 py-1 focus:outline-none focus:border-[#DA7756]"
+              title="상단 2줄 소제목 편집"
+            />
+          </div>
         </div>
       </div>
 
-      {/* 하단 액션 버튼: [수정] & [영상 생성] */}
-      <div className="pt-3 mt-3 border-t border-[#F2EFE8] flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onOpenSubtitleModal(short)}
-          className="flex-1 py-2 px-2.5 rounded-xl border border-[#E0DED7] text-xs font-semibold text-[#44413C] hover:bg-[#FAF9F5] hover:text-[#282622] transition-colors flex items-center justify-center gap-1.5"
-        >
-          <Edit3 className="w-3.5 h-3.5 text-[#DA7756]" />
-          <span>제목·소제목 수정</span>
-        </button>
-
+      {/* 하단 액션 버튼: [영상 생성] 단일화 (수정 버튼 제거) */}
+      <div className="pt-2.5 mt-2.5 border-t border-[#F2EFE8]">
         <button
           type="button"
           disabled={isRendering}
           onClick={() => onSingleRender(short)}
-          className="flex-1 py-2 px-3 rounded-xl bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-xs"
+          className="w-full py-2 px-3 rounded-xl bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-xs cursor-pointer active:scale-95"
         >
           {isRendering ? (
             <>
@@ -312,7 +344,7 @@ export default function HighlightCard({
           ) : (
             <>
               <Play className="w-3.5 h-3.5 fill-white" />
-              <span>영상 렌더링</span>
+              <span>영상 생성</span>
             </>
           )}
         </button>

@@ -21,6 +21,24 @@ class AnalyzeRequest(BaseModel):
 # 백그라운드 작업 인메모리 저장소
 analysis_tasks: Dict[str, Dict[str, Any]] = {}
 
+# 관리자 대시보드용 분석 로그 (실패 로그 및 전체 기록)
+analysis_logs: list = []
+
+def record_analysis_log(task_id: str, url: str, status: str, error: Optional[str] = None):
+    log_entry = {
+        "id": f"log-{uuid.uuid4().hex[:6]}",
+        "task_id": task_id,
+        "youtube_url": url,
+        "status": status,
+        "error": error,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        "created_at": time.time()
+    }
+    analysis_logs.insert(0, log_entry)
+    # 최근 100개 유지
+    if len(analysis_logs) > 100:
+        analysis_logs.pop()
+
 
 async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = None, force_refresh: bool = False):
     task = analysis_tasks.get(task_id)
@@ -98,6 +116,7 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
         task["progress"] = 100
         task["stage"] = f"분석 완료! 쇼츠 {len(analysis.get('shorts', []))}개 생성"
         task["updated_at"] = time.time()
+        record_analysis_log(task_id, url, "COMPLETED")
         logger.info(f"백그라운드 설교 분석 완료: {task_id} | 쇼츠: {len(analysis.get('shorts', []))}개")
 
     except Exception as e:
@@ -106,6 +125,7 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
         task["error"] = str(e)
         task["stage"] = f"❌ 분석 실패: {str(e)[:200]}"
         task["updated_at"] = time.time()
+        record_analysis_log(task_id, url, "FAILED", str(e))
 
 
 
@@ -212,6 +232,7 @@ async def analyze_url(req: AnalyzeRequest) -> Dict[str, Any]:
             meta["churchName"] = details["channel"]
 
         save_cached_analysis(url, analysis)
+        record_analysis_log("sync", url, "COMPLETED")
 
         return {
             "status": "success",
@@ -220,4 +241,42 @@ async def analyze_url(req: AnalyzeRequest) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"설교 분석 실패: {e}", exc_info=True)
+        record_analysis_log("sync", url, "FAILED", str(e))
         raise HTTPException(status_code=500, detail=f"설교 분석 중 오류가 발생했습니다: {str(e)}")
+
+
+@router.get("/admin/dashboard")
+async def get_admin_dashboard() -> Dict[str, Any]:
+    """관리자 대시보드 통계 및 실패 로그 기록 조회"""
+    from app.services.render_queue import render_manager
+    from app.services.cache_service import CACHE_DIR
+    
+    # 캐시 파일 수
+    cache_count = len(list(CACHE_DIR.glob("*.json"))) if CACHE_DIR.exists() else 0
+    
+    # 렌더링 작업 상태
+    render_jobs = render_manager.get_all_jobs()
+    render_completed = sum(1 for j in render_jobs if j.status.value == "COMPLETED")
+    render_failed = sum(1 for j in render_jobs if j.status.value == "FAILED")
+    render_processing = sum(1 for j in render_jobs if j.status.value in ["PROCESSING", "QUEUED"])
+
+    # 분석 실패/성공 집계
+    failed_logs = [log for log in analysis_logs if log["status"] == "FAILED"]
+    completed_logs = [log for log in analysis_logs if log["status"] == "COMPLETED"]
+
+    return {
+        "status": "success",
+        "stats": {
+            "total_cached_sermons": cache_count,
+            "total_analysis_attempts": len(analysis_logs),
+            "analysis_completed": len(completed_logs),
+            "analysis_failed": len(failed_logs),
+            "render_completed": render_completed,
+            "render_failed": render_failed,
+            "render_processing": render_processing,
+            "total_render_jobs": len(render_jobs)
+        },
+        "failed_logs": failed_logs,
+        "recent_logs": analysis_logs[:30]
+    }
+

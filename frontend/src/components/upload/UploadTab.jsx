@@ -12,6 +12,7 @@ import {
   Sliders,
   CheckCircle,
   Clock,
+  Search,
 } from 'lucide-react';
 import YoutubeIcon from '../YoutubeIcon';
 import {
@@ -39,6 +40,7 @@ export default function UploadTab({
 
   // 1. 유튜브 업로드 상태
   const [ytInput, setYtInput] = useState('');
+  const [historySearch, setHistorySearch] = useState('');
 
   // 유튜브 분석 경과시간은 App 레벨 analysisState.elapsed 사용
   // (다른 탭 이동 후 돌아와도 경과 시간 유지)
@@ -294,17 +296,17 @@ export default function UploadTab({
               />
             </div>
 
-            {/* 실시간 진행 상태 및 예상 소요 시간 박스 */}
+            {/* 실시간 진행 상태 박스 */}
             {isYtAnalyzing && (
               <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 text-xs space-y-2.5 animate-fadeIn">
                 <div className="flex items-center justify-between font-semibold text-amber-950">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-amber-600 flex-shrink-0" />
-                    <span>AI가 설교 영상(자막 대본)을 정밀 분석하고 있습니다</span>
+                    <span>목사님의 설교영상을 정밀 분석하고 있습니다</span>
                   </div>
                   <span className="font-mono text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full text-[11px] flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {ytElapsed}초 경과 / 약 25~35초 소요
+                    {ytElapsed}초 경과 / 약 30초~60초 소요
                   </span>
                 </div>
 
@@ -314,33 +316,21 @@ export default function UploadTab({
                     className="bg-amber-600 h-1.5 rounded-full transition-all duration-300"
                     style={{
                       width: `${
-                        ytElapsed <= 30
-                          ? Math.min(85, Math.max(8, (ytElapsed / 30) * 85))
-                          : Math.min(96, 85 + ((ytElapsed - 30) / 15) * 11)
+                        ytElapsed <= 40
+                          ? Math.min(88, Math.max(8, (ytElapsed / 40) * 88))
+                          : Math.min(96, 88 + ((ytElapsed - 40) / 20) * 8)
                       }%`,
                     }}
                   />
                 </div>
 
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center text-[11px] text-amber-900 gap-1">
-                  <span className="font-medium">
-                    {ytElapsed < 4
-                      ? '1단계: 유튜브 영상 정보 및 1,000+개 설교 자막(대본) 추출 중...'
-                      : ytElapsed < 26
-                      ? '2단계: Gemini 3.8 Flash가 설교 핵심, 쇼츠 6편(2줄 헤더/타임스탬프), 5일 묵상집을 심층 분석 중...'
-                      : ytElapsed < 38
-                      ? '3단계: 카드뉴스 2종 구성 및 데이터 규격 완성 중...'
-                      : '4단계: 최종 마무리 단계입니다. 곧 화면이 전환됩니다...'}
-                  </span>
-                  <span className="font-semibold text-amber-700 flex-shrink-0">예상: 약 25~35초 (풀 설교 기준)</span>
+                <div className="flex items-center justify-between text-[11px] text-amber-900">
+                  <span className="font-medium animate-pulse">분석중..</span>
                 </div>
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-[11px] text-[#807D77]">
-                현재 분석된 설교: {sermonData?.metadata?.title || '없음'}
-              </span>
+            <div className="flex items-center justify-end pt-1">
               <button
                 type="submit"
                 disabled={isYtAnalyzing || !ytInput.trim()}
@@ -353,7 +343,7 @@ export default function UploadTab({
                   </>
                 ) : (
                   <>
-                    <span>분석 및 콘텐츠 생성 (약 25~35초 소요)</span>
+                    <span>분석 및 콘텐츠 생성</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}
@@ -363,86 +353,156 @@ export default function UploadTab({
 
           {/* 이미 분석된 영상 안내 메시지 */}
           {analysisState?.cachedNotice && !isYtAnalyzing && (
-            <div className="mt-2.5 px-1 py-1 text-xs text-[#282622] leading-relaxed animate-fadeIn">
-              분석 기록이 있는 영상입니다. 크레딧 사용 없이 사용할 수 있도록 설교분석결과에 저장되어 있어요.
+            <div className="mt-3 p-3.5 bg-[#FAF9F5] border border-[#DA7756]/40 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+              <p className="text-xs text-[#282622]">
+                분석 기록이 있는 영상입니다. <strong>[설교 분석 결과]</strong> 페이지에서 바로 확인하실 수 있습니다.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab('sermon_view')}
+                className="px-3 py-1.5 rounded-lg bg-[#DA7756] hover:bg-[#C56545] text-white text-xs font-bold shrink-0 transition-colors cursor-pointer"
+              >
+                결과 확인하기 &rarr;
+              </button>
             </div>
           )}
 
-          {/* 분석 실패 오류 메시지 */}
+          {/* 분석 완료 상태 안내 문구 및 바로가기 */}
+          {analysisState?.stage && !isYtAnalyzing && !analysisState?.error && (
+            <div className="mt-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <p className="text-xs font-semibold text-emerald-800">
+                  {analysisState.stage} 설교분석결과 페이지에서 상세 내용을 확인하세요.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('sermon_view')}
+                className="px-3 py-1.5 rounded-lg bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-bold shrink-0 transition-colors cursor-pointer"
+              >
+                설교분석결과 보기 &rarr;
+              </button>
+            </div>
+          )}
+
+          {/* 분석 실패 오류 메시지: 복잡한 원본 에러를 모두 비우고 '다시 시도해 주세요'만 깔끔하게 노출 */}
           {analysisState?.error && !isYtAnalyzing && (
             <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl animate-fadeIn">
-              <div className="flex items-start gap-2">
+              <div className="flex items-start gap-2.5">
                 <span className="text-red-500 text-base flex-shrink-0 mt-0.5">❌</span>
                 <div>
                   <p className="text-xs font-bold text-red-700 mb-1">분석에 실패했습니다</p>
-                  <p className="text-[11px] text-red-600 leading-relaxed whitespace-pre-wrap">{analysisState.error}</p>
+                  <p className="text-xs text-red-600 font-medium">다시 시도해 주세요</p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ─── [비용 절감 1순위] 최근 분석된 설교 보관함 (API 호출 0회 즉시 로드) ─── */}
+          {/* ─── 설교분석기록 (목록, 검색, 삭제, NEW 표시) ─── */}
           {sermonHistory.length > 0 && (
             <div className="mt-6 pt-6 border-t border-[#EAE8E1]">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-[#282622]">📁 최근 분석된 설교 보관함</span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#282622]">📁 설교분석기록</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
-                    API 호출 0회 (무료 로드)
+                    {sermonHistory.length}편 보관됨
                   </span>
                 </div>
-                <span className="text-[11px] text-[#807D77]">{sermonHistory.length}편 저장됨</span>
+
+                {/* 검색창 */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#FAF9F5] border border-[#E0DED7] rounded-lg w-full sm:w-60 focus-within:border-[#DA7756]">
+                  <Search className="w-3.5 h-3.5 text-[#A5A29B]" />
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="기록 검색 (제목, 설교자, 교회)"
+                    className="w-full bg-transparent text-xs text-[#282622] placeholder-[#A5A29B] focus:outline-none"
+                  />
+                  {historySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setHistorySearch('')}
+                      className="text-[10px] text-[#A5A29B] hover:text-[#282622]"
+                    >
+                      취소
+                    </button>
+                  )}
+                </div>
               </div>
 
+              {/* 목록 그리드 */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {sermonHistory.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-3 bg-[#FAF9F5] border border-[#E0DED7] hover:border-[#DA7756] rounded-xl flex items-start justify-between gap-3 transition-all hover:shadow-xs group"
-                  >
-                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                      {item.thumbnail ? (
-                        <img
-                          src={item.thumbnail}
-                          alt={item.title}
-                          className="w-16 h-10 object-cover rounded-lg flex-shrink-0 border border-[#E5E3DB]"
-                        />
-                      ) : (
-                        <div className="w-16 h-10 bg-[#EFECE3] rounded-lg flex items-center justify-center text-xs text-[#807D77] flex-shrink-0">
-                          설교
+                {sermonHistory
+                  .filter((item) => {
+                    if (!historySearch.trim()) return true;
+                    const q = historySearch.toLowerCase();
+                    return (
+                      (item.title || '').toLowerCase().includes(q) ||
+                      (item.church || '').toLowerCase().includes(q) ||
+                      (item.preacher || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3 bg-[#FAF9F5] border border-[#E0DED7] hover:border-[#DA7756] rounded-xl flex items-start justify-between gap-3 transition-all hover:shadow-xs group relative"
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                        {item.thumbnail ? (
+                          <img
+                            src={item.thumbnail}
+                            alt={item.title}
+                            className="w-16 h-10 object-cover rounded-lg flex-shrink-0 border border-[#E5E3DB]"
+                          />
+                        ) : (
+                          <div className="w-16 h-10 bg-[#EFECE3] rounded-lg flex items-center justify-center text-xs text-[#807D77] flex-shrink-0">
+                            설교
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-semibold text-[#282622] truncate leading-tight">
+                              {item.title}
+                            </p>
+                            {item.isNew && (
+                              <span className="px-1.5 py-0.2 rounded bg-[#DA7756] text-white text-[9px] font-black tracking-tight flex-shrink-0">
+                                NEW
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-[#807D77] mt-0.5 truncate">
+                            {item.church || item.preacher || '교회/설교자'} &middot; 쇼츠 {item.shortsCount || 5}편
+                          </p>
+                          <span className="text-[9px] text-[#A5A29B] mt-1 block">{item.date}</span>
                         </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-[#282622] truncate leading-tight">
-                          {item.title}
-                        </p>
-                        <p className="text-[10px] text-[#807D77] mt-0.5 truncate">
-                          {item.church || item.preacher || '교회/설교자'} &middot; 쇼츠 {item.shortsCount || 5}편
-                        </p>
-                        <span className="text-[9px] text-[#A5A29B] mt-1 block">{item.date}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onSelectHistory?.(item)}
+                          className="px-2.5 py-1 rounded-lg bg-[#DA7756] hover:bg-[#C56545] text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                          title="열어서 확인 및 숏폼 제작"
+                        >
+                          열기 &rarr;
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`'${item.title}' 설교 기록을 삭제하시겠습니까?`)) {
+                              onDeleteHistory?.(item.id);
+                            }
+                          }}
+                          className="p-1 text-[#A5A29B] hover:text-red-500 rounded-md transition-colors"
+                          title="기록에서 삭제"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => onSelectHistory?.(item)}
-                        className="px-2.5 py-1 rounded-lg bg-[#DA7756] hover:bg-[#C56545] text-white text-[11px] font-semibold transition-colors cursor-pointer"
-                        title="즉시 열어서 쇼츠/카드뉴스 제작"
-                      >
-                        열기 &rarr;
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteHistory?.(item.id)}
-                        className="p-1 text-[#A5A29B] hover:text-red-500 rounded-md transition-colors"
-                        title="보관함에서 삭제"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           )}

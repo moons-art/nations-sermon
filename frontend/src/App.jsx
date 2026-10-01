@@ -6,11 +6,12 @@ import ShortsTab from './components/shorts/ShortsTab';
 import ShortsListView from './components/shorts/ShortsListView';
 import CardNewsTab from './components/cardnews/CardNewsTab';
 import CardListView from './components/cardnews/CardListView';
+import AdminDashboard from './components/AdminDashboard';
 import { fetchRenderJobs } from './api/client';
 import AuthModal from './components/AuthModal';
 import PricingPage from './components/PricingPage';
 import { useAuth } from './api/AuthContext';
-import { LogIn, LogOut, Crown, User } from 'lucide-react';
+import { LogIn, LogOut, Crown, User, Menu, PanelLeft } from 'lucide-react';
 
 const BASE_URL = 'http://127.0.0.1:8000';
 
@@ -18,6 +19,9 @@ export default function App() {
   const { currentUser, userLoading, logout } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
+
+  // 사이드바 오버레이 열림/닫힘 상태 (기본 완전히 숨김)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // 'upload' | 'sermon_view' | 'shorts' | 'shorts_list' | 'cardnews' | 'card_list'
   const [activeTab, setActiveTab] = useState('upload');
@@ -71,10 +75,11 @@ export default function App() {
           thumbnail: data.metadata?.thumbnail || '',
           date: new Date().toLocaleDateString('ko-KR'),
           shortsCount: data.shorts?.length || 0,
-          data: data
+          data: data,
+          isNew: true, // 신규 분석 배지
         },
-        ...filtered
-      ].slice(0, 15);
+        ...filtered.map(item => ({ ...item, isNew: false }))
+      ].slice(0, 30);
       try {
         localStorage.setItem('sermon_history_list', JSON.stringify(updated));
       } catch (e) {}
@@ -162,11 +167,11 @@ export default function App() {
               isAnalyzing: false,
               taskId: null,
               progress: 100,
-              stage: '완료',
+              stage: '분석이 완료되어 설교분석 기록에 저장되었습니다.',
               elapsed: 0,
               error: null,
             });
-            // 분석 완료 시 설교 분석 결과 탭으로 이동
+            // 분석 완료 시 알림 표시 후 설교 분석 결과 탭으로 이동
             setActiveTab('sermon_view');
           } else if (task.status === 'FAILED') {
             clearInterval(pollIntervalRef.current);
@@ -282,84 +287,73 @@ export default function App() {
     shorts_list: '쇼츠 목록',
     cardnews: '설교카드 (5day 묵상카드 / 설교카드)',
     card_list: '카드설교 목록',
+    admin_dashboard: '네이션스 총괄 관리자 대시보드',
   };
 
   return (
-    <div className="flex h-screen bg-[#FBFBF9] text-[#282622] font-sans antialiased selection:bg-[#DA7756]/20 selection:text-[#DA7756] overflow-hidden">
-      {/* 1. 좌측 호버 반응형 사이드바 */}
+    <div className="flex h-screen bg-[#FBFBF9] text-[#282622] font-sans antialiased selection:bg-[#DA7756]/20 selection:text-[#DA7756] overflow-hidden relative">
+      {/* 1. 화면을 덮는 슬라이드 오버레이 사이드바 (네이션스 바이블 스타일) */}
       <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        apiKey={apiKey}
-        setApiKey={setApiKey}
         currentSermonTitle={sermonData?.metadata?.title}
         shortsNotice={shortsNotice}
         cardNotice={cardNotice}
         analysisState={analysisState}
+        currentUser={currentUser}
+        userLoading={userLoading}
+        onOpenLogin={() => setShowAuthModal(true)}
+        onOpenPricing={() => setShowPricing(true)}
+        onLogout={logout}
       />
 
-      {/* 2. 우측 메인 컨텐츠 영역 */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* 상단 미니멀 헤더 */}
-        <header className="h-14 border-b border-[#EAE8E1] px-6 sm:px-8 flex items-center justify-between bg-[#FBFBF9]/90 backdrop-blur-xs flex-shrink-0 z-10">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xs font-bold text-[#282622] font-mono tracking-tight uppercase">
-              {tabTitles[activeTab]}
-            </h1>
-            {sermonData?.metadata?.title && (
-              <span className="text-[11px] text-[#807D77] font-medium hidden sm:inline truncate max-w-md font-serif-kr">
-                &bull; {sermonData.metadata.title}
-              </span>
-            )}
+      {/* 2. 전체 메인 컨텐츠 영역 */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden w-full">
+        {/* 상단 미니멀 헤더 (우측 요금제/로그인 요소는 사이드바로 이전하여 한결 깔끔해짐) */}
+        <header className="h-14 border-b border-[#EAE8E1] px-4 sm:px-8 flex items-center justify-between bg-[#FBFBF9]/90 backdrop-blur-xs flex-shrink-0 z-10">
+          <div className="flex items-center gap-3">
+            {/* 최상단 사이드바 토글 버튼 (네이션스 바이블 특유의 분할 패널 아이콘 1:1 일치) */}
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(prev => !prev)}
+              onMouseEnter={() => setIsSidebarOpen(true)}
+              className="p-1.5 rounded-lg text-[#5E5B55] hover:text-[#1C1A18] hover:bg-[#EFECE6] transition-colors flex items-center gap-2 cursor-pointer"
+              title="사이드바 메뉴 토글"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-[#4A4742]">
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </button>
+
+            {/* 네이션스 바이블 스타일 상단 타이틀 (✦ AI 설교 / 탭 제목) */}
+            <div className="flex items-center gap-2 ml-1">
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-[#5E5B55]">
+                <path d="M12 0L14.59 9.41L24 12L14.59 14.59L12 24L9.41 14.59L0 12L9.41 9.41L12 0Z" />
+              </svg>
+              <h1 className="text-[13.5px] font-bold text-[#282622] tracking-tight">
+                {tabTitles[activeTab]}
+              </h1>
+              {sermonData?.metadata?.title && (
+                <span className="text-[11.5px] text-[#807D77] font-medium hidden md:inline truncate max-w-md font-serif-kr">
+                  &bull; {sermonData.metadata.title}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-3 text-[11px] text-[#807D77] font-mono">
             {/* 전역 분석 진행 상태 표시 */}
             {analysisState.isAnalyzing && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 animate-fadeIn">
                 <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                 <span className="text-[11px] font-semibold">
                   AI 설교 분석 중... ({analysisState.elapsed}초)
                 </span>
                 <span className="text-[10px] opacity-70">{analysisState.progress}%</span>
               </div>
-            )}
-            {/* 요금제 버튼 */}
-            <button
-              onClick={() => setShowPricing(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-gradient-to-r from-[#DA7756]/10 to-[#C46A40]/10 text-[#C46A40] border border-[#DA7756]/20 hover:border-[#DA7756]/40 transition-colors cursor-pointer"
-            >
-              <Crown className="w-3 h-3" />
-              요금제
-            </button>
-            {/* 로그인 / 사용자 버튼 */}
-            {!userLoading && (
-              currentUser ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700">
-                    <User className="w-3 h-3" />
-                    <span className="text-[10px] font-semibold max-w-[80px] truncate">
-                      {currentUser.displayName || currentUser.email?.split('@')[0]}
-                    </span>
-                  </div>
-                  <button
-                    onClick={logout}
-                    title="로그아웃"
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-semibold text-[#807D77] hover:bg-[#F0ECE4] border border-transparent hover:border-[#E7E2D8] transition-colors cursor-pointer"
-                  >
-                    <LogOut className="w-3 h-3" />
-                    로그아웃
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-[#DA7756] text-white hover:bg-[#C46A40] transition-colors shadow-sm cursor-pointer"
-                >
-                  <LogIn className="w-3 h-3" />
-                  로그인
-                </button>
-              )
             )}
             <span className="w-1.5 h-1.5 rounded-full bg-[#DA7756]"></span>
           </div>
@@ -389,7 +383,15 @@ export default function App() {
 
           {/* 2. 설교 분석 결과 */}
           {activeTab === 'sermon_view' && (
-            <SermonTextView sermonData={sermonData} />
+            <SermonTextView
+              sermonData={sermonData}
+              onNavigateToShorts={() => setActiveTab('shorts')}
+              onNavigateToCards={() => setActiveTab('cardnews')}
+              onNavigateToUpload={() => setActiveTab('upload')}
+              sermonHistory={sermonHistory}
+              onSelectHistory={handleSelectHistory}
+              onDeleteHistory={handleDeleteHistory}
+            />
           )}
 
           {/* 3. 쇼츠 생성 */}
@@ -435,6 +437,11 @@ export default function App() {
                 if (cardNotice === 'done') setCardNotice(null);
               }}
             />
+          )}
+
+          {/* 6. 관리자 전용 대시보드 (ymoonsik 계정 로그인 시 이용) */}
+          {activeTab === 'admin_dashboard' && (
+            <AdminDashboard currentUser={currentUser} />
           )}
         </main>
       </div>

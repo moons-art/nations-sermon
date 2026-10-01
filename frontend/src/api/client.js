@@ -109,3 +109,12 @@ export async function fetchBgmList() {
 export function getVideoDownloadUrl(filename) {
   return `${BASE_URL}/api/outputs/${filename}`;
 }
+
+export async function fetchAdminDashboard() {
+  const response = await fetch(`${BASE_URL}/api/admin/dashboard`);
+  if (!response.ok) {
+    throw new Error('관리자 대시보드 데이터 조회 실패');
+  }
+  return await response.json();
+}
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Film, Download, Play, RefreshCw, Loader2, X, Trash2, AlertCircle, Edit3 } from 'lucide-react';
+import { Film, Download, Play, RefreshCw, Loader2, X, Trash2, AlertCircle, Edit3, Search, ArrowUpDown } from 'lucide-react';
 import { fetchRenderJobs, queueRenderItems } from '../../api/client';
 import SubtitleModal from './SubtitleModal';
 
@@ -13,6 +13,10 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
   const [editingJob, setEditingJob] = useState(null);
   const [isReRendering, setIsReRendering] = useState(false);
   const [downloadMenuId, setDownloadMenuId] = useState(null);
+
+  // 검색 및 정렬 상태 ('latest': 최신순, 'name': 이름순)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('latest');
 
   useEffect(() => {
     if (onView) onView();
@@ -107,30 +111,102 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
   const activeJobs = jobs.filter((j) => j.status === 'PROCESSING' || j.status === 'QUEUED');
   const failedJobs = jobs.filter((j) => j.status === 'FAILED');
 
+  // 검색 및 정렬 필터링된 완료 작업 목록
+  const displayedJobs = completedJobs
+    .filter((job) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      const matchTitle = (job.title || '').toLowerCase().includes(q);
+      const matchQuestion = (job.title_question || '').toLowerCase().includes(q);
+      const matchAnswer = (job.title_answer || '').toLowerCase().includes(q);
+      const matchChurch = (job.church_name || '').toLowerCase().includes(q);
+      return matchTitle || matchQuestion || matchAnswer || matchChurch;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') {
+        return (a.title || '').localeCompare(b.title || '');
+      }
+      return (b.created_at || b.job_id || 0) > (a.created_at || a.job_id || 0) ? 1 : -1;
+    });
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn">
-      {/* 상단 헤더 */}
-      <div className="bg-white rounded-2xl p-5 border border-[#EAE8E1] flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <Film className="w-4 h-4 text-[#DA7756]" />
-            <h2 className="text-base font-bold text-[#282622]">생성된 쇼츠 목록</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-[#EFECE3] text-[#66635E] font-mono">
-              총 {completedJobs.length}개 완료
-            </span>
+    <div className="max-w-6xl mx-auto space-y-4 animate-fadeIn">
+      {/* 상단 헤더 & 검색/정렬 바 */}
+      <div className="bg-white rounded-2xl p-4 border border-[#EAE8E1] space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Film className="w-4 h-4 text-[#DA7756]" />
+              <h2 className="text-base font-bold text-[#282622]">생성된 쇼츠 목록</h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[#EFECE3] text-[#66635E] font-mono">
+                총 {completedJobs.length}개 완료
+              </span>
+            </div>
+            <p className="text-xs text-[#807D77] mt-0.5">
+              인코딩이 완료된 9:16 세로 쇼츠를 미리보고 다운로드할 수 있습니다.
+            </p>
           </div>
-          <p className="text-xs text-[#807D77] mt-0.5">
-            인코딩이 완료된 9:16 세로 쇼츠를 미리보고 MP4 파일로 다운로드할 수 있습니다.
-          </p>
+
+          <button
+            onClick={loadJobs}
+            className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E0DED7] text-xs font-medium text-[#66635E] hover:bg-[#FAF9F5] transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>목록 갱신</span>
+          </button>
         </div>
 
-        <button
-          onClick={loadJobs}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E0DED7] text-xs font-medium text-[#66635E] hover:bg-[#FAF9F5] transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>목록 갱신</span>
-        </button>
+        {/* 검색 및 최신순/이름순 필터 바 */}
+        <div className="pt-3 border-t border-[#F2EFE8] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-3.5 h-3.5 text-[#807D77] absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="쇼츠 제목, 소제목, 교회명 검색..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-8 py-1.5 rounded-xl border border-[#E0DED7] text-xs focus:outline-none focus:border-[#DA7756] bg-[#FAF9F5] focus:bg-white transition-all placeholder:text-[#A5A29B]"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A5A29B] hover:text-[#66635E]"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <div className="inline-flex rounded-xl p-0.5 bg-[#FAF9F5] border border-[#E0DED7] text-xs">
+              <button
+                onClick={() => setSortBy('latest')}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  sortBy === 'latest'
+                    ? 'bg-[#282622] text-white shadow-xs'
+                    : 'text-[#66635E] hover:text-[#282622]'
+                }`}
+              >
+                최신순
+              </button>
+              <button
+                onClick={() => setSortBy('name')}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  sortBy === 'name'
+                    ? 'bg-[#282622] text-white shadow-xs'
+                    : 'text-[#66635E] hover:text-[#282622]'
+                }`}
+              >
+                이름순
+              </button>
+            </div>
+            {searchQuery && (
+              <span className="text-[11px] text-[#807D77] font-mono">
+                {displayedJobs.length}개 발견
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 현재 인코딩 진행 중인 작업 알림 카드 */}
@@ -210,18 +286,30 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
         </div>
       )}
 
-      {/* 완료된 쇼츠 비디오 그리드 */}
+      {/* 완료된 쇼츠 비디오 그리드 (반 크기로 축소: 2~5열) */}
       {completedJobs.length === 0 && activeJobs.length === 0 && failedJobs.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-[#EAE8E1]">
+        <div className="text-center py-16 bg-white rounded-2xl border border-[#EAE8E1]">
           <Film className="w-8 h-8 text-[#A5A29B] mx-auto mb-2" />
           <p className="text-xs text-[#807D77]">아직 생성된 쇼츠가 없습니다.</p>
           <p className="text-[11px] text-[#A5A29B] mt-1">
-            [쇼츠 생성] 메뉴에서 원하는 하이라이트를 골라 렌더링을 요청해보세요.
+            [숏폼 생성] 메뉴에서 원하는 하이라이트를 골라 영상 생성을 요청해보세요.
           </p>
         </div>
+      ) : displayedJobs.length === 0 ? (
+        <div className="text-center py-14 bg-white rounded-2xl border border-[#EAE8E1]">
+          <Search className="w-7 h-7 text-[#A5A29B] mx-auto mb-2" />
+          <p className="text-xs font-medium text-[#282622]">검색 결과와 일치하는 쇼츠가 없습니다.</p>
+          <p className="text-[11px] text-[#807D77] mt-0.5">다른 검색어를 입력하거나 검색어를 초기화해보세요.</p>
+          <button
+            onClick={() => setSearchQuery('')}
+            className="mt-3 px-3 py-1.5 rounded-xl border border-[#E0DED7] bg-[#FAF9F5] text-xs font-semibold text-[#DA7756] hover:bg-[#DA7756]/10 transition-colors"
+          >
+            검색어 초기화
+          </button>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {completedJobs.map((job) => {
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5">
+          {displayedJobs.map((job) => {
             const videoUrl = job.video_url
               ? job.video_url.startsWith('http')
                 ? job.video_url
@@ -231,73 +319,77 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
             return (
               <div
                 key={job.job_id}
-                className="bg-white rounded-2xl border border-[#EAE8E1] overflow-hidden flex flex-col justify-between hover:shadow-xs transition-all"
+                className="bg-white rounded-xl border border-[#EAE8E1] overflow-hidden flex flex-col justify-between hover:shadow-md transition-all group"
               >
-                {/* 비디오 썸네일 프리뷰 영역 */}
+                {/* 비디오 썸네일 프리뷰 영역 (반 크기) */}
                 <div
-                  className="relative aspect-[9/16] bg-[#1C1B18] flex items-center justify-center cursor-pointer group"
+                  className="relative aspect-[9/16] bg-[#1C1B18] flex items-center justify-center cursor-pointer overflow-hidden"
                   onClick={() => setSelectedVideo({ url: videoUrl, title: job.title })}
                 >
-                  <video src={videoUrl} className="w-full h-full object-cover opacity-80" />
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                    <div className="w-12 h-12 rounded-full bg-white/90 text-[#282622] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                      <Play className="w-5 h-5 fill-current ml-0.5" />
+                  <video src={videoUrl} className="w-full h-full object-cover opacity-85 group-hover:scale-105 transition-transform duration-300" />
+                  <div className="absolute inset-0 bg-black/25 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                    <div className="w-9 h-9 rounded-full bg-white/90 text-[#282622] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                      <Play className="w-4 h-4 fill-current ml-0.5" />
                     </div>
                   </div>
-                  <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[11px] font-mono text-white/90 px-2 py-1 rounded bg-black/60 backdrop-blur-xs">
-                    <span>{job.duration}</span>
+                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[9px] font-mono text-white/95 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-xs">
+                    <span>{job.duration || '30초'}</span>
                     <span>{job.start_time} ~ {job.end_time}</span>
                   </div>
                 </div>
 
-                {/* 정보 및 다운로드 버튼 */}
-                <div className="p-4 space-y-2.5">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[#FAF9F5] border border-[#E0DED7] text-[#66635E]">
-                      {job.platform === 'instagram' ? '인스타용' : '유튜브용'}
-                    </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[#EFECE3] text-[#282622]">
-                      {job.template === 'cinema_letterbox' || job.template === 'wide'
-                        ? '와이드'
-                        : job.template === 'blue_wide' || job.template === 'vivid_blue'
-                        ? '블루 와이드'
-                        : job.template === 'yellow_wide' || job.template === 'yellow_frame'
-                        ? '옐로우 와이드'
-                        : job.template === 'transparent_minimal'
-                        ? '투명 미니멀'
+                {/* 정보 및 다운로드/수정/삭제 영역 */}
+                <div className="p-2.5 space-y-1.5 flex-1 flex flex-col justify-between">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#FAF9F5] border border-[#E0DED7] text-[#66635E]">
+                        {job.platform === 'instagram' ? '인스타' : '유튜브'}
+                      </span>
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#EFECE3] text-[#282622]">
+                        {job.template === 'cinema_letterbox' || job.template === 'wide'
+                          ? '와이드'
+                          : job.template === 'blue_wide' || job.template === 'vivid_blue'
+                          ? '블루 와이드'
+                          : job.template === 'yellow_wide' || job.template === 'yellow_frame'
+                          ? '옐로우 와이드'
+                          : job.template === 'transparent_minimal'
+                          ? '투명 미니멀'
                         : job.template === 'full_cinema' || job.template === 'center_crop'
                         ? '풀스크린'
                         : '블랙 미니멀'}
                     </span>
                   </div>
 
-                  <div>
-                    {job.title_question && job.title_answer ? (
-                      <div className="space-y-0.5">
-                        <p className="text-[11px] font-bold text-[#807D77] truncate">
-                          {job.title_question}
-                        </p>
-                        <h3 className="text-xs font-black text-[#DA7756] truncate">
-                          {job.title_answer}
+                    <div>
+                      {job.title_question && job.title_answer ? (
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-bold text-[#807D77] truncate">
+                            {job.title_question}
+                          </p>
+                          <h3 className="text-[11px] font-black text-[#DA7756] truncate">
+                            {job.title_answer}
+                          </h3>
+                        </div>
+                      ) : (
+                        <h3 className="text-[11px] font-bold text-[#282622] line-clamp-1">
+                          {job.title}
                         </h3>
-                      </div>
-                    ) : (
-                      <h3 className="text-xs font-bold text-[#282622] line-clamp-1">
-                        {job.title}
-                      </h3>
-                    )}
-                    <p className="text-[11px] text-[#807D77] mt-0.5">
-                      {job.church_name || sermonData?.metadata?.title || '설교 쇼츠'}
-                    </p>
+                      )}
+                      <p className="text-[9px] text-[#807D77] truncate mt-0.5">
+                        {job.church_name || sermonData?.metadata?.title || '설교 쇼츠'}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="pt-2 border-t border-[#F2EFE8] flex items-center gap-1.5 flex-wrap">
+                  {/* 하단 액션 버튼 바 */}
+                  <div className="pt-2 border-t border-[#F2EFE8] flex items-center gap-1">
                     <button
                       onClick={() => setSelectedVideo({ url: videoUrl, title: job.title })}
-                      className="flex-1 py-1.5 px-2 rounded-xl bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                      className="flex-1 py-1 px-1.5 rounded-lg bg-[#282622] hover:bg-[#1E1D1A] text-white text-[10px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                      title="미리보기"
                     >
-                      <Play className="w-3 h-3 fill-white" />
-                      <span>미리보기</span>
+                      <Play className="w-2.5 h-2.5 fill-white" />
+                      <span>보기</span>
                     </button>
                     {/* 자막/제목 수정 버튼 */}
                     <button
@@ -314,71 +406,69 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
                           title_answer: job.title_answer || originalShort?.title_answer || job.title,
                         });
                       }}
-                      className="px-2.5 py-1.5 rounded-xl border border-[#DA7756]/30 bg-[#FAF9F5] text-[#DA7756] hover:bg-[#DA7756]/10 text-xs font-semibold flex items-center gap-1 transition-colors"
-                      title="자막/제목 수정 및 재렌더링"
+                      className="p-1 rounded-lg border border-[#DA7756]/30 bg-[#FAF9F5] text-[#DA7756] hover:bg-[#DA7756]/10 text-[10px] font-semibold flex items-center justify-center transition-colors"
+                      title="수정"
                     >
                       <Edit3 className="w-3 h-3" />
-                      <span>수정</span>
                     </button>
                     {/* 용량 선택 다운로드 드롭다운 버튼 */}
                     <div className="relative">
                       <button
                         onClick={() => setDownloadMenuId(downloadMenuId === job.job_id ? null : job.job_id)}
-                        className="px-2.5 py-1.5 rounded-xl border border-[#E0DED7] text-[#282622] hover:bg-[#FAF9F5] text-xs font-semibold flex items-center gap-1 transition-colors"
-                        title="다운로드 용량 선택"
+                        className="p-1 rounded-lg border border-[#E0DED7] text-[#282622] hover:bg-[#FAF9F5] text-[10px] font-semibold flex items-center justify-center transition-colors"
+                        title="다운로드"
                       >
                         <Download className="w-3 h-3" />
-                        <span>다운로드</span>
                       </button>
 
                       {downloadMenuId === job.job_id && (
-                        <div className="absolute right-0 bottom-full mb-1.5 w-44 bg-white rounded-xl shadow-xl border border-[#EAE8E1] p-1.5 z-30 animate-fadeIn text-left">
+                        <div className="absolute right-0 bottom-full mb-1 w-40 bg-white rounded-xl shadow-xl border border-[#EAE8E1] p-1.5 z-30 animate-fadeIn text-left">
                           <a
                             href={videoUrl}
                             download={`shorts-${job.short_id}-hq.mp4`}
                             onClick={() => setDownloadMenuId(null)}
-                            className="block px-3 py-2 rounded-lg hover:bg-[#FAF9F5] transition-colors"
+                            className="block px-2.5 py-1.5 rounded-lg hover:bg-[#FAF9F5] transition-colors"
                           >
-                            <div className="text-xs font-bold text-[#282622]">고화질 원본</div>
-                            <div className="text-[10px] text-[#807D77]">약 7~8MB (PC/대형화면용)</div>
+                            <div className="text-[11px] font-bold text-[#282622]">고화질 원본</div>
+                            <div className="text-[9px] text-[#807D77]">약 7~8MB (PC용)</div>
                           </a>
                           <div className="h-px bg-[#F2EFE8] my-1" />
                           <a
                             href={`${BASE_URL}/api/render/download-compressed/${job.job_id}`}
                             download={`shorts-${job.short_id}-compressed.mp4`}
                             onClick={() => setDownloadMenuId(null)}
-                            className="block px-3 py-2 rounded-lg hover:bg-[#FAF9F5] transition-colors"
+                            className="block px-2.5 py-1.5 rounded-lg hover:bg-[#FAF9F5] transition-colors"
                           >
-                            <div className="text-xs font-bold text-[#DA7756]">저용량 최적화</div>
-                            <div className="text-[10px] text-[#807D77]">약 3~4MB (카톡/인스타용)</div>
+                            <div className="text-[11px] font-bold text-[#DA7756]">저용량 최적화</div>
+                            <div className="text-[9px] text-[#807D77]">약 3~4MB (카톡용)</div>
                           </a>
                         </div>
                       )}
                     </div>
                     {/* 삭제 버튼 */}
                     {confirmDeleteId === job.job_id ? (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0.5">
                         <button
                           onClick={() => handleDeleteJob(job.job_id)}
                           disabled={deletingJobId === job.job_id}
-                          className="px-2 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-[11px] font-semibold transition-colors"
+                          className="px-1.5 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white text-[9px] font-semibold transition-colors"
                         >
-                          {deletingJobId === job.job_id ? <Loader2 className="w-3 h-3 animate-spin" /> : '삭제'}
+                          {deletingJobId === job.job_id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : '삭제'}
                         </button>
                         <button
                           onClick={() => setConfirmDeleteId(null)}
-                          className="px-2 py-1.5 rounded-xl border border-[#E0DED7] text-[#66635E] text-[11px] font-semibold"
+                          className="px-1.5 py-1 rounded-lg border border-[#E0DED7] text-[#66635E] text-[9px]"
                         >
-                          취소
+                          X
                         </button>
                       </div>
                     ) : (
                       <button
                         onClick={() => setConfirmDeleteId(job.job_id)}
-                        className="p-1.5 rounded-xl border border-[#E0DED7] text-[#807D77] hover:text-red-500 hover:border-red-200 transition-colors"
+                        className="p-1 rounded-lg border border-[#E0DED7] text-[#807D77] hover:text-red-500 hover:border-red-200 transition-colors"
                         title="삭제"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     )}
                   </div>
