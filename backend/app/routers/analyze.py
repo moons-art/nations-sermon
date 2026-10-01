@@ -75,10 +75,12 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             None, extract_video_details_and_transcript, url
         )
         
+        transcript_sample = details.get("transcript_text", "").strip()[:200]
         has_transcript = len(details.get("transcript_text", "")) > 200
         logger.info(
-            f"자막 추출: {len(details.get('transcript_text', ''))}자, "
-            f"transcript={'있음' if has_transcript else '없음'}"
+            f"📜 [자막 검증] 자막 추출 글자 수: {len(details.get('transcript_text', ''))}자 | "
+            f"transcript={'있음' if has_transcript else '없음'} | "
+            f"앞부분 200자: {transcript_sample}..."
         )
 
         task["stage"] = "2단계: AI가 설교 본론 파트 심층 분석 중 (최대 2~3분)..."

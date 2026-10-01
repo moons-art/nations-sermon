@@ -106,26 +106,37 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
         "thumbnail": default_thumb,
         "duration": 0,
         "duration_str": "00:00",
-        "transcript_text": ""
+        "transcript_text": "",
+        "raw_snippets": []
     }
 
+    ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
+    if ffmpeg_dir not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+
+    # ─────────────────────────────────────────────────────────────
+    # [1순위]: 쿠키 및 EJS가 적용된 yt-dlp로 메타데이터 및 실제 자막 추출
+    # ─────────────────────────────────────────────────────────────
     try:
         import yt_dlp
+        import urllib.request
+        import json as pyjson
+
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['ko', 'ko-KR', 'ko-kr', 'en'],
+            'remote_components': ['ejs:github'],
+            'ffmpeg_location': ffmpeg_dir,
             'http_headers': {
                 'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
             },
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'android'],
-                }
-            },
         }
         apply_proxy_and_cookies(ydl_opts)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             details["title"] = info.get("title", "")
@@ -139,27 +150,70 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 mins = int(dur // 60)
                 secs = int(dur % 60)
                 details["duration_str"] = f"{mins:02d}:{secs:02d}"
-    except Exception as e:
-        logger.warning(f"yt-dlp 메타데이터 추출 실패: {e}")
-        # 실패 시 video_id에서 기본 정보 구성
-        if video_id:
-            details["video_id"] = video_id
-            details["thumbnail"] = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
 
-    if video_id:
+            # 자막 데이터(자동생성 또는 공식 자막) 탐색
+            sub_candidates = []
+            for lang_key in ['ko', 'ko-KR', 'ko-kr']:
+                if lang_key in info.get('subtitles', {}):
+                    sub_candidates.extend(info['subtitles'][lang_key])
+                if lang_key in info.get('automatic_captions', {}):
+                    sub_candidates.extend(info['automatic_captions'][lang_key])
+
+            target_url = next((item['url'] for item in sub_candidates if item.get('ext') == 'json3'), None)
+            if not target_url and sub_candidates:
+                target_url = sub_candidates[0].get('url')
+
+            if target_url:
+                req = urllib.request.Request(target_url, headers={
+                    'User-Agent': ydl_opts.get('user_agent', 'Mozilla/5.0'),
+                    'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8'
+                })
+                raw_data = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', errors='ignore')
+                
+                # json3 포맷 파싱
+                if 'events' in raw_data:
+                    sub_data = pyjson.loads(raw_data)
+                    lines = []
+                    raw_snippets = []
+                    for ev in sub_data.get('events', []):
+                        segs = ev.get('segs', [])
+                        t_ms = ev.get('tStartMs', 0)
+                        d_ms = ev.get('dDurationMs', 0)
+                        text = "".join(s.get('utf8', '') for s in segs).strip()
+                        if text and text != '\n':
+                            sec_total = t_ms / 1000.0
+                            mins = int(sec_total // 60)
+                            secs = int(sec_total % 60)
+                            t_str = f"{mins:02d}:{secs:02d}"
+                            lines.append(f"[{t_str}] {text}")
+                            raw_snippets.append({
+                                "start": sec_total,
+                                "duration": d_ms / 1000.0,
+                                "text": text,
+                                "time_str": t_str
+                            })
+                    if lines:
+                        details["transcript_text"] = "\n".join(lines)
+                        details["raw_snippets"] = raw_snippets
+                        logger.info(f"✅ [1순위 yt-dlp 실제 자막 추출 성공] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
+                        logger.info(f"📜 [자막 샘플(앞 200자)]: {details['transcript_text'][:200]}...")
+
+    except Exception as e:
+        logger.warning(f"yt-dlp 1순위 자막/메타데이터 추출 실패: {e}")
+
+    # ─────────────────────────────────────────────────────────────
+    # [2순위 폴백]: youtube-transcript-api 시도
+    # ─────────────────────────────────────────────────────────────
+    if not details.get("transcript_text") and video_id:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
             api = YouTubeTranscriptApi()
-            
-            # 최신 표준 API: 한국어 자막 우선 검색 및 fetch
             snippets = None
             try:
                 snippets = api.fetch(video_id, languages=['ko', 'ko-KR', 'ko-kr'])
             except Exception:
                 try:
-                    # 자동 생성 자막 또는 기본 자막 폴백
-                    transcript_list = api.list(video_id)
-                    for t in transcript_list:
+                    for t in api.list(video_id):
                         snippets = t.fetch()
                         break
                 except Exception:
@@ -181,71 +235,14 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                     })
                 details["transcript_text"] = "\n".join(lines)
                 details["raw_snippets"] = raw_snippets
-                logger.info(f"유튜브 실제 자막 추출 성공 (API): {len(lines)}행")
+                logger.info(f"✅ [2순위 API 실제 자막 추출 성공] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
+                logger.info(f"📜 [자막 샘플(앞 200자)]: {details['transcript_text'][:200]}...")
         except Exception as e:
-            logger.warning(f"youtube-transcript-api 자막 추출 실패: {e}")
+            logger.warning(f"youtube-transcript-api 2순위 자막 추출 실패: {e}")
 
-    # [Cloud Run IP 차단 방어 2단계]: API 추출 실패 시 yt-dlp로 100% 안전하게 자막 보충
-    if not details.get("transcript_text") and video_id:
-        try:
-            import yt_dlp
-            import urllib.request
-            import json as pyjson
-
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'writesubtitles': True,
-                'writeautomaticsub': True,
-                'subtitleslangs': ['ko'],
-                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-                'http_headers': {
-                    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-                },
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['ios', 'android'],
-                    }
-                },
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                sub_candidates = info.get('automatic_captions', {}).get('ko', []) or info.get('subtitles', {}).get('ko', [])
-                target_url = next((item['url'] for item in sub_candidates if item.get('ext') == 'json3'), None)
-                if not target_url and sub_candidates:
-                    target_url = sub_candidates[0]['url']
-
-                if target_url:
-                    req = urllib.request.Request(target_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    raw_json = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', errors='ignore')
-                    sub_data = pyjson.loads(raw_json)
-                    events = sub_data.get('events', [])
-                    lines = []
-                    raw_snippets = []
-                    for ev in events:
-                        segs = ev.get('segs', [])
-                        t_ms = ev.get('tStartMs', 0)
-                        d_ms = ev.get('dDurationMs', 0)
-                        text = "".join(s.get('utf8', '') for s in segs).strip()
-                        if text and text != '\n':
-                            sec_total = t_ms / 1000.0
-                            mins = int(sec_total // 60)
-                            secs = int(sec_total % 60)
-                            t_str = f"{mins:02d}:{secs:02d}"
-                            lines.append(f"[{t_str}] {text}")
-                            raw_snippets.append({
-                                "start": sec_total,
-                                "duration": d_ms / 1000.0,
-                                "text": text,
-                                "time_str": t_str
-                            })
-                    if lines:
-                        details["transcript_text"] = "\n".join(lines)
-                        details["raw_snippets"] = raw_snippets
-                        logger.info(f"✅ yt-dlp 모바일 세션으로 유튜브 자막 추출 성공: {len(lines)}행")
-        except Exception as e:
-            logger.warning(f"yt-dlp 백업 자막 추출 실패: {e}")
+    # 메타데이터 보정
+    if video_id and not details.get("thumbnail"):
+        details["thumbnail"] = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
 
     return details
 

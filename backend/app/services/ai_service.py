@@ -99,33 +99,46 @@ async def analyze_sermon_video(
             "좌측 사이드바에서 Gemini API 키를 입력해주세요."
         )
 
+    from app.services.youtube_service import extract_video_id
+    video_id = extract_video_id(youtube_url)
+    normalized_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else youtube_url
+
     if has_transcript:
+        logger.info(f"📜 [자막 검증] 실제 자막 텍스트 기반 분석 시작 (총 {len(transcript_text)}자) | 샘플: {transcript_text[:200]}...")
         compressed_transcript = clean_and_compress_transcript(transcript_text, duration_seconds)
-        transcript_section = f"""[설교 자막 (실제 타임스탬프 포함)]
+        transcript_section = f"""[실제 설교 자막 텍스트 (타임스탬프 포함)]
 {compressed_transcript}"""
+        anti_hallucination_rule = """[절대 엄수 - 환각(Hallucination) 금지]:
+- 절대 제공된 자막에 없는 내용을 지어내거나 창작하지 마세요.
+- 반드시 위 [실제 설교 자막 텍스트]에 기록된 실제 설교 말씀과 타임스탬프([MM:SS])만을 정확하게 사용하여 쇼츠 구간과 문장을 도출해야 합니다."""
     else:
-        logger.info(f"자막 미추출 상태 -> Gemini 직접 시청 분석 모드(Part.from_uri) 가동: {youtube_url}")
-        transcript_section = "[안내: 유튜브 영상을 직접 시청하고 음성을 분석하여 실제 타임스탬프 기반의 쇼츠 구간과 자막을 도출하세요.]"
+        logger.info(f"🎥 [멀티모달 검증] 자막 부재 -> Gemini Part.from_uri 정규화 URL 전달: {normalized_url} (media_resolution=MEDIA_RESOLUTION_LOW)")
+        transcript_section = "[안내: 제공된 유튜브 영상(video/mp4)을 직접 시청하고 설교자의 실제 음성을 인식하여 타임스탬프를 추출하세요.]"
+        anti_hallucination_rule = f"""[절대 엄수 - 환각(Hallucination) 금지]:
+- 절대 내용을 상상하거나 지어내지 마세요.
+- 반드시 동봉된 유튜브 영상({normalized_url})에서 설교자가 실제로 발언한 음성만을 그대로 받아적어 실제 타임스탬프([MM:SS])와 함께 추출하세요. 가짜 내용 생성은 엄격히 금지됩니다."""
 
     prompt = f"""당신은 한국 설교 미디어 전문가입니다.
-아래 유튜브 설교 영상의 자막을 분석하여 JSON을 반환하세요.
+아래 유튜브 설교 영상을 분석하여 JSON을 반환하세요.
 
 [영상 정보]
-- URL: {youtube_url}
+- URL: {normalized_url}
 - 제목: {title}
 - 채널/교회: {channel}
 - 영상 길이: {duration_str}
 
 {transcript_section}
 
+{anti_hallucination_rule}
+
 반드시 아래 규칙을 지켜주세요:
 1. [가장 중요 - 감동적인 하이라이트와 온전한 문장 마무리]:
-   - 자막에서 실제 타임스탬프([MM:SS])를 기반으로 성도들에게 가장 큰 감동과 울림을 주는 핵심 하이라이트 5구간을 선정하세요.
+   - 실제 타임스탬프([MM:SS])를 기반으로 성도들에게 가장 큰 감동과 울림을 주는 핵심 하이라이트 5구간을 선정하세요.
    - 각 쇼츠의 길이는 30초 ~ 60초 (1분 이내) 사이로 자유롭게 설정하되, 메시지의 감동을 온전히 전달하는 데 집중하세요.
    - [필수 규칙 - 말끝 끊김 절대 금지]: 영상의 끝부분(endTime)은 목사님이 말씀을 하다가 도중에 잘리거나 어색하게 끊기지 않고, 하나의 온전한 감동적인 문장이나 선포("~합시다", "~바랍니다", "~믿습니다", "~아멘", "~역사가 일어납니다")로 확실하고 은혜롭게 마침표를 찍으며 끝나는 지점으로 정확히 잡아야 합니다.
-2. sentences 배열에는 해당 구간의 실제 자막 문장들을 timestamps와 함께 담되, 마지막 문장까지 온전하게 종결되어야 합니다.
-3. 설교 제목, 본문 구절, 설교자명을 자막/제목에서 추출하세요.
-4. sermonText에 자막 전체를 자연스러운 설교문 형태로 재구성하여 담으세요 (설교 도입부~결론 전체).
+2. sentences 배열에는 해당 구간의 실제 발언 문장들을 timestamps와 함께 담되, 마지막 문장까지 온전하게 종결되어야 합니다.
+3. 설교 제목, 본문 구절, 설교자명을 실제 내용에서 추출하세요.
+4. sermonText에 설교 전체를 자연스러운 설교문 형태로 재구성하여 담으세요 (설교 도입부~결론 전체).
 5. [쇼츠 영상 타이틀 규칙 (매우 중요)]:
    - 길고 장황한 설명문("~할까요?", "~마음에서 시작됩니다") 금지!
    - [필수 규칙 - 소제목 스타일 다채롭게 작성 (vs 대조 반복 절대 금지)]:
@@ -142,14 +155,14 @@ async def analyze_sermon_video(
 다음 JSON 구조를 반드시 그대로 반환하세요 (코드블록 없이 순수 JSON만):
 {{
   "metadata": {{
-    "title": "설교 제목 (자막/제목에서 추출)",
+    "title": "설교 제목",
     "preacher": "설교자 이름",
-    "passage": "성경 본문 구절 (예: 요한복음 3:16)",
+    "passage": "성경 본문 구절",
     "churchName": "교회/채널 이름",
     "publishedAt": "날짜 (알 수 있으면)",
     "videoDuration": "{duration_str}"
   }},
-  "sermonText": "전체 설교문 (자막에서 재구성. 도입부부터 결론까지 자연스러운 문체로 정리. 최소 1000자 이상)",
+  "sermonText": "전체 설교문 (도입부부터 결론까지 자연스러운 문체로 정리. 최소 1000자 이상)",
   "shorts": [
     {{
       "id": "short-1",
@@ -162,7 +175,7 @@ async def analyze_sermon_video(
       "hook": "시청자를 끌어당기는 한 줄 후크",
       "summary": "이 구간 핵심 요약 2~3문장",
       "sentences": [
-        {{"id": 1, "start": "MM:SS", "end": "MM:SS", "text": "실제 자막 문장"}}
+        {{"id": 1, "start": "MM:SS", "end": "MM:SS", "text": "실제 발언 문장"}}
       ]
     }}
   ],
@@ -201,14 +214,15 @@ async def analyze_sermon_video(
     client = genai.Client(api_key=api_key)
     gen_config = types.GenerateContentConfig(
         response_mime_type="application/json",
-        temperature=0.25
+        temperature=0.1,  # 환각 방지 최저 온도
+        media_resolution="MEDIA_RESOLUTION_LOW"  # 1시간 이상 긴 영상 처리 최적화
     )
     
-    # 자막이 없는 경우 구글 내부망 멀티모달 분석을 위해 Part.from_uri로 유튜브 URL 직접 주입
+    # 자막이 없는 경우 구글 내부망 멀티모달 분석을 위해 정규화된 watch?v= URL 전달
     if has_transcript:
         contents_payload = prompt
     else:
-        part = types.Part.from_uri(file_uri=youtube_url, mime_type="video/*")
+        part = types.Part.from_uri(file_uri=normalized_url, mime_type="video/mp4")
         contents_payload = [part, prompt]
 
     last_error = None
