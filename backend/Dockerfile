@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 
-# 시스템 필수 유틸 및 FFmpeg, 한국어 폰트 설치
+# 시스템 필수 유틸 및 FFmpeg, Node.js(yt-dlp JS 챌린지 런타임), 한국어 폰트 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    nodejs \
     fonts-nanum \
     fonts-noto-cjk \
     curl \

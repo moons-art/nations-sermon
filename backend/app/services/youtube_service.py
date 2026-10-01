@@ -300,9 +300,11 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
     import yt_dlp
 
-    # 공통 옵션 베이스
+    # 공통 옵션 베이스 (EJS 복호화 컴포넌트 및 상세 디버깅 로그 활성화)
     base_opts = {
         'ffmpeg_location': ffmpeg_dir,
+        'remote_components': ['ejs:github'],
+        'verbose': True,
         'quiet': False,
         'no_warnings': False,
         'http_headers': {
@@ -315,6 +317,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
     # ─────────────────────────────────────────────────────────────
     # [1차 시도]: yt-dlp의 download_ranges를 이용한 고속 부분 다운로드
+    # (유연한 포맷 지정 + format_sort 기반 h264/aac/mp4 우선 + merge_output_format: mp4)
     # ─────────────────────────────────────────────────────────────
     try:
         def section_ranges(info_dict, ydl):
@@ -322,7 +325,8 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
         opts_1 = dict(base_opts)
         opts_1.update({
-            'format': 'best/bv*+ba/b',
+            'format': 'bestvideo+bestaudio/best',
+            'format_sort': ['vcodec:h264', 'acodec:aac', 'ext:mp4:m4a'],
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file),
             'download_ranges': section_ranges,
@@ -341,13 +345,13 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
     # ─────────────────────────────────────────────────────────────
     # [2차 시도]: 라이브 스트림/HLS 완벽 지원 - 스트림 URL 추출 후 FFmpeg 직접 구간 추출
-    # (yt-dlp의 'Requested format is not available' 버그를 100% 우회)
     # ─────────────────────────────────────────────────────────────
     try:
         opts_2 = dict(base_opts)
         opts_2.update({
             'skip_download': True,
-            'format': 'best/bestvideo+bestaudio/b',
+            'format': 'bestvideo+bestaudio/best',
+            'format_sort': ['vcodec:h264', 'acodec:aac', 'ext:mp4:m4a'],
         })
         with yt_dlp.YoutubeDL(opts_2) as ydl:
             info = ydl.extract_info(url, download=False)
