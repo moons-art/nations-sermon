@@ -32,6 +32,7 @@ def parse_time_to_seconds(time_str: str) -> int:
     return 0
 
 import base64
+import copy
 import tempfile
 
 def get_cookie_file_path() -> Optional[str]:
@@ -59,41 +60,43 @@ def get_cookie_file_path() -> Optional[str]:
 
 def apply_proxy_and_cookies(ydl_opts: Dict[str, Any]):
     """
-    환경변수 기반 프록시(YOUTUBE_PROXY) 및 쿠키(YOUTUBE_COOKIES_BASE64) 최우선 주입.
-    * 중요: 모바일 클라이언트(android, ios)는 쿠키를 지원하지 않으므로,
-      쿠키가 있을 때는 모바일 클라이언트 강제 고정을 해제하고 쿠키 호환 Web/MWeb 클라이언트를 사용합니다.
+    환경변수 기반 프록시(YOUTUBE_PROXY), 쿠키(YOUTUBE_COOKIES_BASE64),
+    및 PO Token(bgutil-ytdlp-pot-provider: http://127.0.0.1:4416) 최우선 주입.
+    * 중요: 모바일 클라이언트는 쿠키를 지원하지 않으므로,
+      쿠키가 있을 때는 모바일 클라이언트 강제 설정을 해제하고 Web/MWeb/TV 클라이언트를 사용합니다.
     """
-    # 1. 프록시 지원
+    # 1. 프록시 지원 (YOUTUBE_PROXY 최우선 보장)
     proxy = os.getenv("YOUTUBE_PROXY", "").strip()
     if proxy:
         ydl_opts["proxy"] = proxy
-        # 로그용 마스킹 처리 (계정:비밀번호 숨김)
         masked_proxy = re.sub(r':([^:@]+)@', ':****@', proxy)
         logger.info(f"🌐 [프록시 적용] YOUTUBE_PROXY 활성화: {masked_proxy}")
     else:
         logger.info("ℹ️ [프록시 미적용] YOUTUBE_PROXY 환경변수가 설정되지 않았습니다 (직접 연결).")
 
-    # 2. 쿠키 지원 및 클라이언트 분기
+    # 2. PO Token Provider (bgutil-ytdlp-pot-provider HTTP 포트 4416) 연동
+    extractor_args = ydl_opts.setdefault("extractor_args", {})
+    extractor_args["youtubepot-bgutilhttp"] = {
+        "base_url": ["http://127.0.0.1:4416"]
+    }
+
+    # 3. 쿠키 지원 및 클라이언트 분기
     cookie_file = get_cookie_file_path()
     if cookie_file:
         ydl_opts["cookiefile"] = cookie_file
-        # 쿠키가 정상 작동하도록 Web/MWeb 클라이언트와 데스크톱 UA 적용 (모바일 클라이언트 해제)
+        # 쿠키가 정상 작동하도록 Web/MWeb/TV 클라이언트와 데스크톱 UA 적용
         ydl_opts["user_agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ydl_opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["web", "mweb"]
-            }
+        extractor_args["youtube"] = {
+            "player_client": ["web", "mweb", "tv"]
         }
-        logger.info(f"🍪 [쿠키 연동 완료] 쿠키 적용 및 Web/MWeb 클라이언트 전환 완료 (경로: {cookie_file})")
+        logger.info(f"🍪 [쿠키 + PO Token 연동] 쿠키 적용 및 Web/MWeb/TV 클라이언트 + PO Token 설정 완료 (경로: {cookie_file})")
     else:
-        # 쿠키가 없는 경우 모바일 클라이언트 세션 사용
-        ydl_opts["user_agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-        ydl_opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["ios", "android"]
-            }
+        # 쿠키가 없는 경우: 웹, 모바일 클라이언트 및 PO Token 활성화
+        ydl_opts["user_agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        extractor_args["youtube"] = {
+            "player_client": ["web", "mweb", "tv", "ios", "android"]
         }
-        logger.info("ℹ️ [쿠키 미적용] YOUTUBE_COOKIES_BASE64가 없어 기본 모바일 클라이언트(ios, android) 세션으로 동작합니다.")
+        logger.info("ℹ️ [쿠키 미적용] YOUTUBE_COOKIES_BASE64 없음 (기본 클라이언트 및 PO Token 활성화)")
 
 def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
     video_id = extract_video_id(url)
@@ -338,18 +341,24 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     last_errors = []
 
     # ─────────────────────────────────────────────────────────────
-    # [1차 시도 (검증 완료)]: external_downloader ffmpeg + format='best[ext=mp4]/best/bestvideo+bestaudio'
-    # 모바일 클라이언트(단일 합본 18번)와 데스크톱 클라이언트(분리 스트림) 모두 단 2초 만에 완벽 스트리밍 다운로드
+    # [1차 시도]: native download_ranges + bestvideo+bestaudio/best
+    # PO Token(4416)과 쿠키/Web 클라이언트가 연동되어 고화질 스트림을 부분 다운로드
     # ─────────────────────────────────────────────────────────────
     try:
-        opts_1 = dict(base_opts)
+        def section_ranges(info_dict, ydl):
+            return [{'start_time': start_sec, 'end_time': end_sec}]
+
+        opts_1 = copy.deepcopy(base_opts)
         opts_1.update({
-            'format': 'best[ext=mp4]/best/bestvideo+bestaudio',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
-            'external_downloader': {'default': 'ffmpeg'},
-            'external_downloader_args': {'ffmpeg_i': ['-ss', str(start_sec), '-to', str(end_sec)]},
+            'download_ranges': section_ranges,
+            'force_keyframes_at_cuts': True,
         })
+        # 프록시 최우선 적용 보장
+        if "proxy" in base_opts:
+            opts_1["proxy"] = base_opts["proxy"]
 
         with yt_dlp.YoutubeDL(opts_1) as ydl:
             ydl.download([normalized_url])
@@ -357,38 +366,79 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         found = find_downloaded_file(target_file)
         if found:
             file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [1차 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
+            logger.info(f"✅ [1차 download_ranges 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
             return found
     except Exception as e1:
-        last_errors.append(f"1차(external_ffmpeg): {e1}")
-        logger.warning(f"⚠️ 1차 다운로드 실패: {e1} -> 2차 download_ranges 시도")
+        last_errors.append(f"1차(download_ranges): {e1}")
+        logger.warning(f"⚠️ 1차 다운로드 실패: {e1} -> 2차 external_downloader 시도")
 
     # ─────────────────────────────────────────────────────────────
-    # [2차 시도]: download_ranges + best 포맷
+    # [2차 시도]: external_downloader ffmpeg
     # ─────────────────────────────────────────────────────────────
     try:
-        def section_ranges(info_dict, ydl):
-            return [{'start_time': start_sec, 'end_time': end_sec}]
-
-        opts_2 = dict(base_opts)
+        opts_2 = copy.deepcopy(base_opts)
         opts_2.update({
-            'format': 'best',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
-            'download_ranges': section_ranges,
-            'force_keyframes_at_cuts': True,
+            'external_downloader': {'default': 'ffmpeg'},
+            'external_downloader_args': {'ffmpeg_i': ['-ss', str(start_sec), '-to', str(end_sec)]},
         })
+        # 프록시 최우선 적용 보장
+        if "proxy" in base_opts:
+            opts_2["proxy"] = base_opts["proxy"]
+
         with yt_dlp.YoutubeDL(opts_2) as ydl:
             ydl.download([normalized_url])
 
         found = find_downloaded_file(target_file)
         if found:
             file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [2차 download_ranges 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
+            logger.info(f"✅ [2차 external_downloader 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
             return found
     except Exception as e2:
-        last_errors.append(f"2차(download_ranges): {e2}")
+        last_errors.append(f"2차(external_downloader): {e2}")
         logger.warning(f"⚠️ 2차 다운로드 실패: {e2}")
+
+    # ─────────────────────────────────────────────────────────────
+    # [3차 시도 (최후 폴백)]: 단일 format='best' 직접 다운로드
+    # ─────────────────────────────────────────────────────────────
+    try:
+        opts_3 = copy.deepcopy(base_opts)
+        opts_3.update({
+            'format': 'best/bestvideo+bestaudio',
+            'merge_output_format': 'mp4',
+            'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
+        })
+        if "proxy" in base_opts:
+            opts_3["proxy"] = base_opts["proxy"]
+
+        with yt_dlp.YoutubeDL(opts_3) as ydl:
+            ydl.download([normalized_url])
+
+        found = find_downloaded_file(target_file)
+        if found:
+            # 전체 영상 다운로드 후 ffmpeg로 구간 자르기
+            temp_cut = target_file.parent / f"cut_{target_file.name}"
+            cut_cmd = [
+                FFMPEG_PATH, "-y",
+                "-ss", str(start_sec),
+                "-to", str(end_sec),
+                "-i", str(found),
+                "-c", "copy",
+                str(temp_cut)
+            ]
+            subprocess.run(cut_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if temp_cut.exists() and temp_cut.stat().st_size > 10000:
+                found.unlink(missing_ok=True)
+                temp_cut.rename(target_file)
+                file_size_mb = target_file.stat().st_size / (1024 * 1024)
+                logger.info(f"✅ [3차 direct_download + ffmpeg cut 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+                return target_file
+            return found
+    except Exception as e3:
+        last_errors.append(f"3차(direct_download): {e3}")
+        logger.warning(f"⚠️ 3차 다운로드 실패: {e3}")
 
     found = find_downloaded_file(target_file)
     if found:

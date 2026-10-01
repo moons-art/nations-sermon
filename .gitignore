@@ -45,6 +45,8 @@ outputs/
 *.mp4
 *.ass
 *.log
+backend/*_temp.json
+backend/*_result.json
 
 # IDE & OS
 .vscode/
