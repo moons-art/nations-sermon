@@ -10,6 +10,7 @@ from dataclasses import dataclass, asdict
 from app.config import OUTPUTS_DIR
 from app.services.youtube_service import download_or_prepare_clip
 from app.services.ffmpeg_service import render_short_video
+from app.services.storage_service import upload_short_to_firebase
 
 logger = logging.getLogger(__name__)
 
@@ -304,11 +305,20 @@ class SequentialRenderManager:
 
                 job.progress = 100
                 job.status = "COMPLETED"
-                job.video_url = f"/api/outputs/{output_video.name}"
                 job.file_path = str(output_video)
+
+                # Firebase Storage 업로드 시도 (스토리지 URL 우선 사용, 실패/로컬 시 기존 로컬 엔드포인트)
+                storage_url = await loop.run_in_executor(
+                    None, upload_short_to_firebase, output_video, output_video.name
+                )
+                if storage_url:
+                    job.video_url = storage_url
+                else:
+                    job.video_url = f"/api/outputs/{output_video.name}"
+
                 job.updated_at = time.time()
                 self._save_job_meta(job)
-                logger.info(f"[순차 렌더링 완료] Job ID: {job_id} -> {output_video.name}")
+                logger.info(f"[순차 렌더링 완료] Job ID: {job_id} -> {output_video.name} (URL: {job.video_url})")
 
                 # 원본 임시 소스 파일 정리
                 if source_video.exists():

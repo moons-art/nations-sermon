@@ -1,0 +1,23 @@
+# Python 캐시 및 가상환경
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+
+# 로컬 임시 출력 및 캐시 파일
+outputs/*
+!outputs/.gitkeep
+outputs/cache/*
+
+# 환경 변수 및 보안 키
+.env
+.env.local
+*.pem
+service-account*.json
+
+# OS 관련
+.DS_Store
+Thumbs.db
