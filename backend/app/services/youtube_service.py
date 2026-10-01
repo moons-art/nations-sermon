@@ -116,9 +116,62 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                     })
                 details["transcript_text"] = "\n".join(lines)
                 details["raw_snippets"] = raw_snippets
-                logger.info(f"유튜브 실제 자막 추출 성공: {len(lines)}행")
+                logger.info(f"유튜브 실제 자막 추출 성공 (API): {len(lines)}행")
         except Exception as e:
             logger.warning(f"youtube-transcript-api 자막 추출 실패: {e}")
+
+    # [Cloud Run IP 차단 방어 2단계]: API 추출 실패 시 yt-dlp로 100% 안전하게 자막 보충
+    if not details.get("transcript_text") and video_id:
+        try:
+            import yt_dlp
+            import urllib.request
+            import json as pyjson
+
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+                'subtitleslangs': ['ko'],
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                sub_candidates = info.get('automatic_captions', {}).get('ko', []) or info.get('subtitles', {}).get('ko', [])
+                target_url = next((item['url'] for item in sub_candidates if item.get('ext') == 'json3'), None)
+                if not target_url and sub_candidates:
+                    target_url = sub_candidates[0]['url']
+
+                if target_url:
+                    req = urllib.request.Request(target_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    raw_json = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', errors='ignore')
+                    sub_data = pyjson.loads(raw_json)
+                    events = sub_data.get('events', [])
+                    lines = []
+                    raw_snippets = []
+                    for ev in events:
+                        segs = ev.get('segs', [])
+                        t_ms = ev.get('tStartMs', 0)
+                        d_ms = ev.get('dDurationMs', 0)
+                        text = "".join(s.get('utf8', '') for s in segs).strip()
+                        if text and text != '\n':
+                            sec_total = t_ms / 1000.0
+                            mins = int(sec_total // 60)
+                            secs = int(sec_total % 60)
+                            t_str = f"{mins:02d}:{secs:02d}"
+                            lines.append(f"[{t_str}] {text}")
+                            raw_snippets.append({
+                                "start": sec_total,
+                                "duration": d_ms / 1000.0,
+                                "text": text,
+                                "time_str": t_str
+                            })
+                    if lines:
+                        details["transcript_text"] = "\n".join(lines)
+                        details["raw_snippets"] = raw_snippets
+                        logger.info(f"✅ yt-dlp 모바일 세션으로 유튜브 자막 추출 성공: {len(lines)}행")
+        except Exception as e:
+            logger.warning(f"yt-dlp 백업 자막 추출 실패: {e}")
 
     return details
 
