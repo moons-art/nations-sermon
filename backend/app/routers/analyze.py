@@ -261,9 +261,9 @@ async def get_admin_dashboard() -> Dict[str, Any]:
     
     # 렌더링 작업 상태
     render_jobs = render_manager.get_all_jobs()
-    render_completed = sum(1 for j in render_jobs if j.status.value == "COMPLETED")
-    render_failed = sum(1 for j in render_jobs if j.status.value == "FAILED")
-    render_processing = sum(1 for j in render_jobs if j.status.value in ["PROCESSING", "QUEUED"])
+    render_completed = sum(1 for j in render_jobs if j.get("status") == "COMPLETED")
+    render_failed = sum(1 for j in render_jobs if j.get("status") == "FAILED")
+    render_processing = sum(1 for j in render_jobs if j.get("status") in ["PROCESSING", "QUEUED"])
 
     # 분석 실패/성공 집계
     failed_logs = [log for log in analysis_logs if log["status"] == "FAILED"]

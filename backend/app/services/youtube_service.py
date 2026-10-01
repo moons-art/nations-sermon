@@ -280,7 +280,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     # 앞뒤 여유 1.5초 마진 부여 (호흡 끊김 방지 및 키프레임 보정)
     start_sec = max(0.0, float(raw_start) - 1.5)
     end_sec = float(raw_end) + 1.5
-    clip_duration = end_sec - start_sec
+    clip_duration = max(3.0, end_sec - start_sec)
 
     ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
     if ffmpeg_dir not in os.environ.get("PATH", ""):
@@ -298,73 +298,98 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         f"(실제 추출 범위: {start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초)"
     )
 
-    try:
-        import yt_dlp
+    import yt_dlp
 
-        # 1시간 전체 영상을 받지 않고 요청된 타임스탬프 구간만 스트리밍 다운로드
+    # 공통 옵션 베이스
+    base_opts = {
+        'ffmpeg_location': ffmpeg_dir,
+        'quiet': False,
+        'no_warnings': False,
+        'http_headers': {
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        },
+        'retries': 3,
+        'fragment_retries': 3,
+    }
+    apply_proxy_and_cookies(base_opts)
+
+    # ─────────────────────────────────────────────────────────────
+    # [1차 시도]: yt-dlp의 download_ranges를 이용한 고속 부분 다운로드
+    # ─────────────────────────────────────────────────────────────
+    try:
         def section_ranges(info_dict, ydl):
-            logger.info(f"✂️ [yt-dlp 구간 지정 적용] {start_sec:.1f}초 ~ {end_sec:.1f}초 스트림 다운로드 수행")
             return [{'start_time': start_sec, 'end_time': end_sec}]
 
-        # 1차 시도: 1080p 이하 최적 비디오 + 오디오 병합 (단일 스트림/모바일 스트림 포괄)
-        primary_format = 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b/best'
-        ydl_opts = {
-            'format': primary_format,
+        opts_1 = dict(base_opts)
+        opts_1.update({
+            'format': 'best/bv*+ba/b',
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file),
             'download_ranges': section_ranges,
             'force_keyframes_at_cuts': True,
-            'ffmpeg_location': ffmpeg_dir,
-            'quiet': False,
-            'no_warnings': False,
-            'http_headers': {
-                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-            },
-            'retries': 3,
-            'fragment_retries': 3,
-        }
+        })
 
-        # 쿠키 및 프록시 주입 (쿠키 유무에 따라 user_agent 및 extractor_args 자동 분기)
-        apply_proxy_and_cookies(ydl_opts)
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-        except Exception as primary_err:
-            err_str = str(primary_err)
-            # Requested format is not available 오류 시 범용 'best/b'로 즉시 자동 복구 재시도
-            if "Requested format is not available" in err_str or "format" in err_str.lower():
-                logger.warning(f"⚠️ 1차 포맷({primary_format}) 매칭 실패, 범용 포맷('best/b')으로 즉시 재시도: {primary_err}")
-                ydl_opts['format'] = 'best/b'
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-            else:
-                raise primary_err
+        with yt_dlp.YoutubeDL(opts_1) as ydl:
+            ydl.download([url])
 
         if target_file.exists() and target_file.stat().st_size > 10000:
             file_size_mb = target_file.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [유튜브 클립 부분 다운로드 성공] 파일: {target_file} (크기: {file_size_mb:.2f} MB)")
+            logger.info(f"✅ [1차 다운로드 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
             return target_file
-        else:
-            raise RuntimeError(
-                f"유튜브 영상 다운로드에 실패했습니다.\n"
-                f"구간: {start_time} ~ {end_time}\n"
-                "파일이 생성되지 않았거나 크기가 너무 작습니다."
-            )
-    except RuntimeError:
-        raise
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"❌ [유튜브 다운로드 실패] {error_msg}", exc_info=True)
-        if "Sign in to confirm you’re not a bot" in error_msg or "403" in error_msg:
-            raise RuntimeError(
-                f"유튜브 봇 차단이 감지되었습니다 (Sign in to confirm you're not a bot).\n"
-                f"Cloud Run 환경변수에 'YOUTUBE_COOKIES_BASE64' 또는 'YOUTUBE_PROXY'를 등록해 주세요.\n"
-                f"오류 상세: {error_msg}"
-            )
-        raise RuntimeError(
-            f"유튜브 영상 다운로드 중 오류가 발생했습니다.\n"
-            f"오류: {error_msg}\n"
-            f"구간: {start_time} ~ {end_time}"
-        )
+    except Exception as e1:
+        logger.warning(f"⚠️ 1차 구간 다운로드 실패: {e1} -> 2차 FFmpeg 직접 스트리밍 폴백으로 전환합니다.")
+
+    # ─────────────────────────────────────────────────────────────
+    # [2차 시도]: 라이브 스트림/HLS 완벽 지원 - 스트림 URL 추출 후 FFmpeg 직접 구간 추출
+    # (yt-dlp의 'Requested format is not available' 버그를 100% 우회)
+    # ─────────────────────────────────────────────────────────────
+    try:
+        opts_2 = dict(base_opts)
+        opts_2.update({
+            'skip_download': True,
+            'format': 'best/bestvideo+bestaudio/b',
+        })
+        with yt_dlp.YoutubeDL(opts_2) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        stream_url = info.get('url')
+        if not stream_url and 'formats' in info:
+            # 사용 가능한 포맷 중 스트림 URL 추출
+            for f in reversed(info['formats']):
+                if f.get('url') and (f.get('vcodec') != 'none' or f.get('acodec') != 'none'):
+                    stream_url = f['url']
+                    break
+
+        if stream_url:
+            logger.info(f"✂️ [2차 시도] FFmpeg로 원본 스트림 직접 구간 추출 ({start_sec:.1f}초 ~ {end_sec:.1f}초)")
+            cmd = [
+                FFMPEG_PATH, "-y",
+                "-ss", str(start_sec),
+                "-t", str(clip_duration),
+                "-i", stream_url,
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                "-c:a", "aac", "-b:a", "128k",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(target_file)
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+            if res.returncode == 0 and target_file.exists() and target_file.stat().st_size > 10000:
+                file_size_mb = target_file.stat().st_size / (1024 * 1024)
+                logger.info(f"✅ [2차 FFmpeg 직접 스트리밍 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+                return target_file
+            else:
+                logger.error(f"FFmpeg 직접 스트림 추출 실패: {res.stderr[:300] if res.stderr else '알 수 없는 오류'}")
+    except Exception as e2:
+        logger.error(f"⚠️ 2차 스트림 추출 실패: {e2}")
+
+    # 최종 파일 존재 여부 검사
+    if target_file.exists() and target_file.stat().st_size > 10000:
+        return target_file
+
+    raise RuntimeError(
+        f"유튜브 영상 다운로드에 실패했습니다.\n"
+        f"구간: {start_time} ~ {end_time}\n"
+        "라이브 스트림 호환성 또는 유튜브 접근 제한 때문일 수 있습니다."
+    )
 
