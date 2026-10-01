@@ -306,8 +306,11 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             logger.info(f"✂️ [yt-dlp 구간 지정 적용] {start_sec:.1f}초 ~ {end_sec:.1f}초 스트림 다운로드 수행")
             return [{'start_time': start_sec, 'end_time': end_sec}]
 
+        # 1차 시도: 1080p 이하 최적 비디오 + 오디오 병합 (단일 스트림/모바일 스트림 포괄)
+        primary_format = 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b/best'
         ydl_opts = {
-            'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+            'format': primary_format,
+            'merge_output_format': 'mp4',
             'outtmpl': str(target_file),
             'download_ranges': section_ranges,
             'force_keyframes_at_cuts': True,
@@ -324,8 +327,19 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         # 쿠키 및 프록시 주입 (쿠키 유무에 따라 user_agent 및 extractor_args 자동 분기)
         apply_proxy_and_cookies(ydl_opts)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as primary_err:
+            err_str = str(primary_err)
+            # Requested format is not available 오류 시 범용 'best/b'로 즉시 자동 복구 재시도
+            if "Requested format is not available" in err_str or "format" in err_str.lower():
+                logger.warning(f"⚠️ 1차 포맷({primary_format}) 매칭 실패, 범용 포맷('best/b')으로 즉시 재시도: {primary_err}")
+                ydl_opts['format'] = 'best/b'
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+            else:
+                raise primary_err
 
         if target_file.exists() and target_file.stat().st_size > 10000:
             file_size_mb = target_file.stat().st_size / (1024 * 1024)
