@@ -232,10 +232,25 @@ export default function App() {
         throw new Error(errJson.detail || '분석 시작 실패');
       }
       const json = await res.json();
+      if (json.is_cached) {
+        // 이미 분석된 캐시 영상인 경우: 튕기지 않고 안내 문구를 띄우고 결과로 부드럽게 전환
+        setAnalysisState({
+          isAnalyzing: false,
+          taskId: null,
+          progress: 100,
+          stage: '',
+          elapsed: 0,
+          error: null,
+          cachedNotice: json.message || "이미 분석이 완료된 영상입니다. 하단의 '최근 분석된 설교 보관함'을 확인해주세요.",
+        });
+        return;
+      }
+
       setAnalysisState(prev => ({
         ...prev,
         taskId: json.task_id,
         stage: '분석 작업이 시작되었습니다. 다른 탭을 이용하셔도 됩니다.',
+        cachedNotice: null,
       }));
     } catch (err) {
       setAnalysisState({
@@ -245,6 +260,7 @@ export default function App() {
         stage: '',
         elapsed: 0,
         error: err.message,
+        cachedNotice: null,
       });
     }
   };
@@ -391,6 +407,7 @@ export default function App() {
           {activeTab === 'shorts_list' && (
             <ShortsListView
               sermonData={sermonData}
+              youtubeUrl={youtubeUrl}
               onView={() => {
                 if (shortsNotice === 'done') setShortsNotice(null);
               }}

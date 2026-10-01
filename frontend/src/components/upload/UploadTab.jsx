@@ -361,6 +361,13 @@ export default function UploadTab({
             </div>
           </form>
 
+          {/* 이미 분석된 영상 안내 메시지 */}
+          {analysisState?.cachedNotice && !isYtAnalyzing && (
+            <div className="mt-2.5 px-1 py-1 text-xs text-[#282622] leading-relaxed animate-fadeIn">
+              분석 기록이 있는 영상입니다. 크레딧 사용 없이 사용할 수 있도록 설교분석결과에 저장되어 있어요.
+            </div>
+          )}
+
           {/* 분석 실패 오류 메시지 */}
           {analysisState?.error && !isYtAnalyzing && (
             <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl animate-fadeIn">

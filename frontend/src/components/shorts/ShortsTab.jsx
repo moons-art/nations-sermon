@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Music,
   Building2,
   Play,
+  Pause,
+  Volume2,
   CheckSquare,
   Square,
   Sparkles,
@@ -22,7 +24,7 @@ import {
 import YoutubeIcon from '../YoutubeIcon';
 import InstagramIcon from '../InstagramIcon';
 import HighlightCard from './HighlightCard';
-import SubtitleModal from './SubtitleModal';
+import TitleEditModal from './TitleEditModal';
 import { queueRenderItems, fetchBgmList } from '../../api/client';
 
 // ─── 쇼츠 생성 단계 상수 ───
@@ -57,8 +59,45 @@ export default function ShortsTab({
   }, [displayedShorts.length]);
 
   // ── BGM / 교회명 / 설교자
-  const [bgm, setBgm] = useState('grace.mp3');
+  const [bgm, setBgm] = useState('calm_piano.mp3');
   const [bgmList, setBgmList] = useState([]);
+  const [previewingBgm, setPreviewingBgm] = useState(null);
+  const audioPlayerRef = useRef(null);
+
+  const togglePreviewBgm = (bgmId) => {
+    if (!bgmId || bgmId === 'none') {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+      setPreviewingBgm(null);
+      return;
+    }
+
+    if (previewingBgm === bgmId) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+      setPreviewingBgm(null);
+    } else {
+      if (!audioPlayerRef.current) {
+        audioPlayerRef.current = new Audio();
+        audioPlayerRef.current.onended = () => setPreviewingBgm(null);
+      }
+      audioPlayerRef.current.src = `http://127.0.0.1:8000/api/assets/bgm-audio/${bgmId}`;
+      audioPlayerRef.current.volume = 0.8;
+      audioPlayerRef.current.play().catch(e => console.warn('오디오 재생 실패:', e));
+      setPreviewingBgm(bgmId);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+    };
+  }, []);
+
   const [churchName, setChurchName] = useState(
     sermonData?.metadata?.churchName || ''
   );
@@ -167,32 +206,49 @@ export default function ShortsTab({
   // ── 데이터 없을 때
   const hasShorts = displayedShorts.length > 0;
 
-  // ── 5대 템플릿 정의
+  // ── 7대 템플릿 정의 (순서: 와이드 -> 블루 와이드 -> 옐로우 와이드 -> 투명 미니멀 -> 블랙 미니멀 -> 옐로우 미니멀 -> 풀스크린)
   const templateList = [
     {
+      id: 'cinema_letterbox', name: '와이드',
+      bgType: 'wide', bgColor: 'bg-[#0B0C0E]',
+      qColor: 'text-white', aColor: 'text-[#FFE600]',
+      padTop: 'pt-2',
+    },
+    {
+      id: 'blue_wide', name: '블루 와이드',
+      bgType: 'wide', bgColor: 'bg-[#1E62D0]',
+      qColor: 'text-white', aColor: 'text-[#FFE600]',
+      padTop: 'pt-2',
+    },
+    {
+      id: 'yellow_wide', name: '옐로우 와이드',
+      bgType: 'wide', bgColor: 'bg-[#F4CF42]',
+      qColor: 'text-[#121212]', aColor: 'text-[#181A22]',
+      padTop: 'pt-2',
+    },
+    {
+      id: 'transparent_minimal', name: '투명 미니멀',
+      bgType: 'transparent', bgColor: 'bg-black/60',
+      qColor: 'text-white', aColor: 'text-[#FFE600]',
+      padTop: 'pt-1.5',
+    },
+    {
       id: 'dark_minimal', name: '블랙 미니멀',
-      previewBg: 'bg-[#0E0E10]', header1: 'bg-white', header2: 'bg-[#FFE600]',
-      videoBox: 'bg-[#1C1D22] border-white/20', subtitle: 'bg-white/90', crossColor: 'text-white/80',
+      bgType: 'minimal', bgColor: 'bg-[#0E0E10]',
+      qColor: 'text-white', aColor: 'text-[#FFE600]',
+      padTop: 'pt-1.5',
     },
     {
-      id: 'yellow_frame', name: '옐로우 프레임',
-      previewBg: 'bg-[#F4CF42]', header1: 'bg-[#121212]', header2: 'bg-[#181A22]',
-      videoBox: 'bg-[#1A1A1A] border-black/20', subtitle: 'bg-black/90', crossColor: 'text-[#121212]',
+      id: 'yellow_minimal', name: '옐로우 미니멀',
+      bgType: 'minimal', bgColor: 'bg-[#F4CF42]',
+      qColor: 'text-[#121212]', aColor: 'text-[#181A22]',
+      padTop: 'pt-1.5',
     },
     {
-      id: 'vivid_blue', name: '비비드 블루',
-      previewBg: 'bg-[#1E62D0]', header1: 'bg-white', header2: 'bg-white',
-      videoBox: 'bg-[#123E88] border-white/30', subtitle: 'bg-[#FFF360]', crossColor: 'text-white/90',
-    },
-    {
-      id: 'modern_grey', name: '모던 그레이',
-      previewBg: 'bg-[#25282F]', header1: 'bg-[#D8D8D8]', header2: 'bg-white',
-      videoBox: 'bg-[#17191E] border-white/20', subtitle: 'bg-white/90', crossColor: 'text-[#C5C5C5]',
-    },
-    {
-      id: 'full_cinema', name: '풀스크린 시네마',
-      previewBg: 'bg-slate-900', isCinema: true, header1: 'bg-white/80', header2: 'bg-[#FFE600]',
-      videoBox: null, subtitle: 'bg-white', crossColor: 'text-white/80',
+      id: 'full_cinema', name: '풀스크린',
+      bgType: 'fullscreen', bgColor: 'bg-black',
+      qColor: 'text-white', aColor: 'text-[#FFE600]',
+      padTop: 'pt-1.5',
     },
   ];
 
@@ -297,55 +353,58 @@ export default function ShortsTab({
 
             {/* BGM */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#66635E] flex items-center gap-1.5">
-                <Music className="w-3.5 h-3.5 text-[#807D77]" />
-                <span>배경음악 (BGM)</span>
-              </label>
-              <select
-                value={bgm}
-                onChange={e => setBgm(e.target.value)}
-                className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756]"
-              >
-                {bgmList.map(item => (
-                  <option key={item.id} value={item.id}>{item.name} — {item.desc}</option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#66635E] flex items-center gap-1.5">
+                  <Music className="w-3.5 h-3.5 text-[#807D77]" />
+                  <span>배경음악 (BGM)</span>
+                </label>
+
+                {bgm && bgm !== 'none' && (
+                  <button
+                    type="button"
+                    onClick={() => togglePreviewBgm(bgm)}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors ${
+                      previewingBgm === bgm
+                        ? 'bg-[#DA7756] text-white animate-pulse'
+                        : 'bg-[#EFECE3] text-[#66635E] hover:text-[#282622] hover:bg-[#E5E0D5]'
+                    }`}
+                    title="선택된 BGM 미리듣기"
+                  >
+                    {previewingBgm === bgm ? (
+                      <>
+                        <Pause className="w-3 h-3" />
+                        <span>정지</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>미리듣기</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={bgm}
+                  onChange={e => {
+                    const newBgm = e.target.value;
+                    setBgm(newBgm);
+                    if (previewingBgm) {
+                      togglePreviewBgm(newBgm);
+                    }
+                  }}
+                  className="w-full text-xs bg-[#FAF9F5] border border-[#E0DED7] rounded-xl px-3 py-2 text-[#282622] font-medium focus:outline-none focus:border-[#DA7756]"
+                >
+                  {bgmList.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} — {item.desc}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* ── 플랫폼 선택 ── */}
-          <div className="bg-white rounded-2xl p-5 border border-[#EAE8E1] space-y-3">
-            <h3 className="text-xs font-bold text-[#282622] flex items-center gap-1.5 uppercase tracking-wider font-mono">
-              <Video className="w-3.5 h-3.5 text-[#DA7756]" />
-              <span>플랫폼 선택</span>
-            </h3>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { id: 'youtube', label: '유튜브용', sub: 'Shorts 9:16', Icon: YoutubeIcon },
-                { id: 'instagram', label: '인스타용', sub: 'Reels 9:16', Icon: InstagramIcon },
-              ].map(({ id, label, sub, Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setPlatform(id)}
-                  className={`p-3.5 rounded-xl border-2 transition-all flex items-center justify-center gap-2.5 ${
-                    platform === id
-                      ? 'border-[#DA7756] bg-[#FAF9F5] text-[#282622]'
-                      : 'border-[#EAE8E1] bg-white text-[#66635E] hover:border-[#DCD9CF]'
-                  }`}
-                >
-                  <div className={`p-1.5 rounded-lg ${platform === id ? 'bg-[#DA7756] text-white' : 'bg-[#F2EFE8] text-[#807D77]'}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-xs font-bold">{label}</div>
-                    <div className="text-[10px] font-mono text-[#807D77]">({sub})</div>
-                  </div>
-                  {platform === id && <Check className="w-4 h-4 text-[#DA7756] ml-auto" />}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* ── 템플릿 선택 (접기/펼치기) ── */}
           <div className="bg-white rounded-2xl border border-[#EAE8E1] overflow-hidden">
@@ -367,49 +426,101 @@ export default function ShortsTab({
             </button>
 
             {showTemplates && (
-              <div className="px-5 pb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 border-t border-[#EAE8E1] pt-4">
+              <div className="px-3 sm:px-5 pb-5 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 border-t border-[#EAE8E1] pt-4">
                 {templateList.map(tpl => {
                   const isSelected = template === tpl.id;
                   return (
                     <div
                       key={tpl.id}
                       onClick={() => setTemplate(tpl.id)}
-                      className={`group cursor-pointer rounded-2xl p-2.5 border-2 transition-all flex flex-col items-center gap-2.5 relative select-none ${
+                      className={`group cursor-pointer rounded-xl p-1.5 sm:p-2 border-2 transition-all flex flex-col items-center gap-1.5 sm:gap-2 relative select-none ${
                         isSelected ? 'border-[#DA7756] bg-[#FAF9F5]' : 'border-[#EAE8E1] bg-white hover:border-[#DCD9CF]'
                       }`}
                     >
-                      <div className={`w-full aspect-[9/15] rounded-xl ${tpl.previewBg} p-2 flex flex-col justify-between items-center relative overflow-hidden shadow-inner border border-black/10`}>
-                        {tpl.isCinema && (
+                      {/* 9:16 비율 실감형 미니어처 */}
+                      <div className={`w-full aspect-[9/16] rounded-lg ${tpl.bgColor} p-1 sm:p-1.5 flex flex-col justify-between items-center relative overflow-hidden shadow-inner border border-black/10 text-center`}>
+                        {/* 풀스크린/투명일 때 배경 비디오 이미지 */}
+                        {(tpl.bgType === 'fullscreen' || tpl.bgType === 'transparent') && (
                           <img
                             src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=300&auto=format&fit=crop&q=80"
                             alt=""
                             className="absolute inset-0 w-full h-full object-cover opacity-60"
                           />
                         )}
-                        <div className="relative z-10 w-full text-center space-y-1 pt-0.5">
-                          <div className={`w-3/4 h-1.5 mx-auto rounded-full ${tpl.header1}`} />
-                          <div className={`w-1/2 h-1.5 mx-auto rounded-full ${tpl.header2}`} />
+
+                        {/* 상단: 제목 & 소제목 (실제 텍스트 - 지금보다 더 아래로 이동) */}
+                        <div className={`relative z-10 w-full leading-tight ${tpl.bgType === 'wide' ? 'pt-4 sm:pt-5 pb-1' : 'pt-3 sm:pt-4 pb-1'}`}>
+                          <p className={`text-[7px] sm:text-[9.5px] font-black tracking-tighter truncate ${tpl.qColor}`}>
+                            열심히 해도 목마른 이유
+                          </p>
+                          <p className={`text-[5px] sm:text-[7.5px] font-semibold truncate ${tpl.aColor} opacity-90 scale-90`}>
+                            당신의 열심의 정체
+                          </p>
                         </div>
-                        {tpl.videoBox ? (
-                          <div className={`relative z-10 w-full aspect-video rounded-lg ${tpl.videoBox} border flex items-center justify-center`}>
-                            <Play className="w-2.5 h-2.5 fill-white/80 text-white/80" />
+
+                        {/* 중단: 비디오 영역
+                            - 와이드 3종: 영상 크기가 위아래로 훨씬 길고(aspect-[16/15]), 위아래 배경 최소화, 자막이 영상 안 하단에 오버레이
+                            - 미니멀/투명 미니멀: 중앙 가로 16:9 영상 박스 노출
+                        */}
+                        {tpl.bgType === 'wide' ? (
+                          <div className="relative z-10 w-full aspect-[16/15] bg-black rounded overflow-hidden shadow-md my-0 flex flex-col justify-end">
+                            <img
+                              src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=280&auto=format&fit=crop&q=80"
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover opacity-90 scale-135"
+                            />
+                            {/* 영상 중앙 재생 아이콘 */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-3.5 h-3.5 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-xs">
+                                <Play className="w-1.5 h-1.5 fill-white text-white ml-0.5" />
+                              </div>
+                            </div>
+                            {/* 와이드 자막: 영상 안쪽 아래에 배치 */}
+                            <div className="relative z-10 w-full bg-black/95 px-1 py-0.5 border-t border-white/20 mb-1 mx-auto max-w-[92%] rounded">
+                              <p className="text-[5.5px] sm:text-[7px] text-white font-medium leading-[1.15] break-keep line-clamp-2">
+                                오늘 하나님이 여러분에게 주시는 말씀은 하나님께 나아오라는 것입니다.
+                              </p>
+                            </div>
                           </div>
-                        ) : (
-                          <div className="relative z-10 w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-                            <Play className="w-2.5 h-2.5 fill-white text-white ml-0.5" />
+                        ) : (tpl.bgType === 'minimal' || tpl.bgType === 'transparent') ? (
+                          <div className="relative z-10 w-full aspect-video rounded bg-black/60 border border-white/20 flex items-center justify-center overflow-hidden my-auto shadow-sm">
+                            <img
+                              src="https://images.unsplash.com/photo-1507692049790-de58290a4334?w=200&auto=format&fit=crop&q=80"
+                              alt=""
+                              className="w-full h-full object-cover opacity-80"
+                            />
+                            <div className="absolute w-3.5 h-3.5 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-xs">
+                              <Play className="w-1.5 h-1.5 fill-white text-white ml-0.5" />
+                            </div>
                           </div>
-                        )}
-                        <div className="relative z-10 w-full text-center space-y-1 pb-0.5">
-                          <div className={`w-4/5 h-1.5 mx-auto rounded-full ${tpl.subtitle}`} />
-                          <span className={`text-[8px] font-bold block ${tpl.crossColor}`}>✝</span>
+                        ) : null}
+
+                        {/* 하단: 자막 (미니멀/투명/풀스크린) & 교회명 - 풀스크린/미니멀 자막을 더 위로 올림 */}
+                        <div className={`relative z-10 w-full space-y-1 ${tpl.bgType === 'wide' ? 'pb-0.5 pt-0.5' : 'pb-3.5'}`}>
+                          {tpl.bgType !== 'wide' && (
+                            <div className="w-full bg-black/95 px-1 py-1 rounded border border-white/15 shadow-sm mb-1">
+                              <p className="text-[5.5px] sm:text-[7px] text-white font-medium leading-[1.15] break-keep line-clamp-2">
+                                오늘 하나님이 여러분에게 주시는 말씀은 하나님께 나아오라는 것입니다.
+                              </p>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-center gap-0.5 opacity-70">
+                            <span className={`text-[6px] ${tpl.qColor}`}>✝</span>
+                            <span className={`text-[5px] sm:text-[6px] font-bold ${tpl.qColor} truncate max-w-[50px]`}>
+                              {churchName || '교회이름'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <span className={`text-xs font-bold truncate block ${isSelected ? 'text-[#DA7756]' : 'text-[#282622]'}`}>
+
+                      {/* 템플릿 명칭 */}
+                      <span className={`text-[10px] sm:text-xs font-bold truncate block ${isSelected ? 'text-[#DA7756]' : 'text-[#282622]'}`}>
                         {tpl.name}
                       </span>
+
                       {isSelected && (
-                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#DA7756] text-white flex items-center justify-center">
-                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                        <div className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-[#DA7756] text-white flex items-center justify-center shadow">
+                          <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3]" />
                         </div>
                       )}
                     </div>
@@ -491,12 +602,24 @@ export default function ShortsTab({
         </>
       )}
 
-      {/* 자막 편집 모달 */}
+      {/* 제목/소제목 편집 모달 (쇼츠 생성 전 단계) */}
       {editingShort && (
-        <SubtitleModal
+        <TitleEditModal
           shortItem={editingShort}
           onClose={() => setEditingShort(null)}
-          onSave={handleSaveSubtitles}
+          onSave={(shortId, newQuestion, newAnswer) => {
+            const updatedShorts = sermonData.shorts.map(s =>
+              s.id === shortId
+                ? {
+                    ...s,
+                    title_question: newQuestion,
+                    title_answer: newAnswer,
+                  }
+                : s
+            );
+            setSermonData({ ...sermonData, shorts: updatedShorts });
+            setEditingShort(null);
+          }}
         />
       )}
     </div>

@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Film, Download, Play, RefreshCw, Loader2, X, Trash2, AlertCircle } from 'lucide-react';
-import { fetchRenderJobs } from '../../api/client';
+import { Film, Download, Play, RefreshCw, Loader2, X, Trash2, AlertCircle, Edit3 } from 'lucide-react';
+import { fetchRenderJobs, queueRenderItems } from '../../api/client';
+import SubtitleModal from './SubtitleModal';
 
 const BASE_URL = 'http://127.0.0.1:8000';
 
-export default function ShortsListView({ onView, sermonData }) {
+export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
   const [jobs, setJobs] = useState([]);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [deletingJobId, setDeletingJobId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [editingJob, setEditingJob] = useState(null);
+  const [isReRendering, setIsReRendering] = useState(false);
+  const [downloadMenuId, setDownloadMenuId] = useState(null);
 
   useEffect(() => {
     if (onView) onView();
@@ -38,6 +42,64 @@ export default function ShortsListView({ onView, sermonData }) {
     } finally {
       setDeletingJobId(null);
       setConfirmDeleteId(null);
+    }
+  };
+
+  const handleReRenderJob = async (itemId, updatedSentences, newQuestion, newAnswer, newBgm) => {
+    if (!editingJob) return;
+    setIsReRendering(true);
+    try {
+      // sermonData 원본 쇼츠에서 sentences 보강이 필요한 경우 대비
+      const originalShort = sermonData?.shorts?.find(s => s.id === editingJob.short_id);
+      const effectiveSentences = (updatedSentences && updatedSentences.length > 0)
+        ? updatedSentences
+        : (editingJob.sentences && editingJob.sentences.length > 0)
+        ? editingJob.sentences
+        : (originalShort?.sentences || []);
+
+      // 다단계 유튜브 URL 폴백 (editingJob -> props youtubeUrl -> localStorage -> sermonData)
+      const effectiveYtUrl =
+        editingJob.youtube_url ||
+        youtubeUrl ||
+        localStorage.getItem('last_youtube_url') ||
+        sermonData?.metadata?.youtube_url ||
+        '';
+
+      const effectiveStartTime =
+        (editingJob.start_time && editingJob.start_time !== '00:00')
+          ? editingJob.start_time
+          : (originalShort?.startTime || editingJob.start_time || '00:00');
+
+      const effectiveEndTime =
+        (editingJob.end_time && editingJob.end_time !== '00:30')
+          ? editingJob.end_time
+          : (originalShort?.endTime || editingJob.end_time || '00:30');
+
+      const payload = [{
+        short_id: editingJob.short_id || originalShort?.id || 'short-1',
+        title: editingJob.title || originalShort?.title || '설교 쇼츠',
+        title_question: newQuestion || editingJob.title_question || originalShort?.title_question || originalShort?.hook || editingJob.title,
+        title_answer: newAnswer || editingJob.title_answer || originalShort?.title_answer || editingJob.title,
+        start_time: effectiveStartTime,
+        end_time: effectiveEndTime,
+        duration: editingJob.duration || originalShort?.duration || '30초',
+        sentences: effectiveSentences,
+        bgm: newBgm || editingJob.bgm || 'calm_piano.mp3',
+        template: editingJob.template || 'dark_minimal',
+        platform: editingJob.platform || 'youtube',
+        church_name: editingJob.church_name || sermonData?.metadata?.church_name || '',
+        youtube_url: effectiveYtUrl,
+      }];
+
+      await queueRenderItems(payload);
+      alert('수정된 내용으로 재렌더링 큐에 등록되었습니다!');
+      loadJobs();
+    } catch (err) {
+      console.error(err);
+      alert(`재렌더링 요청 실패: ${err.message || '서버 오류'}`);
+    } finally {
+      setIsReRendering(false);
+      setEditingJob(null);
     }
   };
 
@@ -83,23 +145,40 @@ export default function ShortsListView({ onView, sermonData }) {
             {activeJobs.map((job) => (
               <div
                 key={job.job_id}
-                className="p-3 bg-white rounded-xl border border-[#EAE8E1] flex items-center justify-between text-xs"
+                className="p-3 bg-white rounded-xl border border-[#EAE8E1] flex items-center justify-between text-xs gap-3"
               >
-                <div>
-                  <div className="font-semibold text-[#282622]">{job.title}</div>
-                  <div className="text-[11px] font-mono text-[#807D77]">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-[#282622] truncate">{job.title}</div>
+                  <div className="text-[11px] font-mono text-[#807D77] truncate">
                     구간: {job.start_time} ~ {job.end_time} &bull; 템플릿: {job.template} &bull; BGM: {job.bgm}
                   </div>
                 </div>
 
-                <div className="text-right">
-                  {job.status === 'PROCESSING' ? (
-                    <span className="text-xs font-bold text-[#DA7756] font-mono">
-                      인코딩 {job.progress}%
-                    </span>
-                  ) : (
-                    <span className="text-xs text-[#807D77] font-mono">순차 대기 중</span>
-                  )}
+                <div className="flex items-center gap-3 shrink-0">
+                  <div>
+                    {job.status === 'PROCESSING' ? (
+                      <span className="text-xs font-bold text-[#DA7756] font-mono flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin inline" />
+                        인코딩 {job.progress}%
+                      </span>
+                    ) : (
+                      <span className="text-xs text-[#807D77] font-mono">순차 대기 중</span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`'${job.title}' 작업을 정말 중단하고 삭제하시겠습니까?`)) {
+                        handleDeleteJob(job.job_id);
+                      }
+                    }}
+                    disabled={deletingJobId === job.job_id}
+                    title="작업 중단 및 삭제"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-medium transition-colors"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>{deletingJobId === job.job_id ? '중단 중...' : '중단 및 삭제'}</span>
+                  </button>
                 </div>
               </div>
             ))}
@@ -178,14 +257,16 @@ export default function ShortsListView({ onView, sermonData }) {
                       {job.platform === 'instagram' ? '인스타용' : '유튜브용'}
                     </span>
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[#EFECE3] text-[#282622]">
-                      {job.template === 'yellow_frame'
-                        ? '옐로우 프레임'
-                        : job.template === 'vivid_blue'
-                        ? '비비드 블루'
-                        : job.template === 'modern_grey'
-                        ? '모던 그레이'
+                      {job.template === 'cinema_letterbox' || job.template === 'wide'
+                        ? '와이드'
+                        : job.template === 'blue_wide' || job.template === 'vivid_blue'
+                        ? '블루 와이드'
+                        : job.template === 'yellow_wide' || job.template === 'yellow_frame'
+                        ? '옐로우 와이드'
+                        : job.template === 'transparent_minimal'
+                        ? '투명 미니멀'
                         : job.template === 'full_cinema' || job.template === 'center_crop'
-                        ? '풀스크린 시네마'
+                        ? '풀스크린'
                         : '블랙 미니멀'}
                     </span>
                   </div>
@@ -210,7 +291,7 @@ export default function ShortsListView({ onView, sermonData }) {
                     </p>
                   </div>
 
-                  <div className="pt-2 border-t border-[#F2EFE8] flex items-center gap-2">
+                  <div className="pt-2 border-t border-[#F2EFE8] flex items-center gap-1.5 flex-wrap">
                     <button
                       onClick={() => setSelectedVideo({ url: videoUrl, title: job.title })}
                       className="flex-1 py-1.5 px-2 rounded-xl bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
@@ -218,14 +299,62 @@ export default function ShortsListView({ onView, sermonData }) {
                       <Play className="w-3 h-3 fill-white" />
                       <span>미리보기</span>
                     </button>
-                    <a
-                      href={videoUrl}
-                      download={`shorts-${job.short_id}.mp4`}
-                      className="px-3 py-1.5 rounded-xl border border-[#E0DED7] text-[#282622] hover:bg-[#FAF9F5] text-xs font-semibold flex items-center gap-1 transition-colors"
+                    {/* 자막/제목 수정 버튼 */}
+                    <button
+                      onClick={() => {
+                        const originalShort = sermonData?.shorts?.find(s => s.id === job.short_id);
+                        setEditingJob({
+                          ...job,
+                          startTime: job.start_time,
+                          endTime: job.end_time,
+                          sentences: (job.sentences && job.sentences.length > 0)
+                            ? job.sentences
+                            : (originalShort?.sentences || []),
+                          title_question: job.title_question || originalShort?.title_question || originalShort?.hook || job.title,
+                          title_answer: job.title_answer || originalShort?.title_answer || job.title,
+                        });
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl border border-[#DA7756]/30 bg-[#FAF9F5] text-[#DA7756] hover:bg-[#DA7756]/10 text-xs font-semibold flex items-center gap-1 transition-colors"
+                      title="자막/제목 수정 및 재렌더링"
                     >
-                      <Download className="w-3 h-3" />
-                      <span>MP4</span>
-                    </a>
+                      <Edit3 className="w-3 h-3" />
+                      <span>수정</span>
+                    </button>
+                    {/* 용량 선택 다운로드 드롭다운 버튼 */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setDownloadMenuId(downloadMenuId === job.job_id ? null : job.job_id)}
+                        className="px-2.5 py-1.5 rounded-xl border border-[#E0DED7] text-[#282622] hover:bg-[#FAF9F5] text-xs font-semibold flex items-center gap-1 transition-colors"
+                        title="다운로드 용량 선택"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>다운로드</span>
+                      </button>
+
+                      {downloadMenuId === job.job_id && (
+                        <div className="absolute right-0 bottom-full mb-1.5 w-44 bg-white rounded-xl shadow-xl border border-[#EAE8E1] p-1.5 z-30 animate-fadeIn text-left">
+                          <a
+                            href={videoUrl}
+                            download={`shorts-${job.short_id}-hq.mp4`}
+                            onClick={() => setDownloadMenuId(null)}
+                            className="block px-3 py-2 rounded-lg hover:bg-[#FAF9F5] transition-colors"
+                          >
+                            <div className="text-xs font-bold text-[#282622]">고화질 원본</div>
+                            <div className="text-[10px] text-[#807D77]">약 7~8MB (PC/대형화면용)</div>
+                          </a>
+                          <div className="h-px bg-[#F2EFE8] my-1" />
+                          <a
+                            href={`${BASE_URL}/api/render/download-compressed/${job.job_id}`}
+                            download={`shorts-${job.short_id}-compressed.mp4`}
+                            onClick={() => setDownloadMenuId(null)}
+                            className="block px-3 py-2 rounded-lg hover:bg-[#FAF9F5] transition-colors"
+                          >
+                            <div className="text-xs font-bold text-[#DA7756]">저용량 최적화</div>
+                            <div className="text-[10px] text-[#807D77]">약 3~4MB (카톡/인스타용)</div>
+                          </a>
+                        </div>
+                      )}
+                    </div>
                     {/* 삭제 버튼 */}
                     {confirmDeleteId === job.job_id ? (
                       <div className="flex items-center gap-1">
@@ -258,6 +387,16 @@ export default function ShortsListView({ onView, sermonData }) {
             );
           })}
         </div>
+      )}
+
+      {/* 자막 / 제목 / 소제목 수정 및 재렌더링 모달 */}
+      {editingJob && (
+        <SubtitleModal
+          shortItem={editingJob}
+          onClose={() => setEditingJob(null)}
+          onSave={handleReRenderJob}
+          saveLabel="수정 및 재렌더링"
+        />
       )}
 
       {/* 비디오 재생 팝업 모달 */}

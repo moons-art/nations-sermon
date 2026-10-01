@@ -86,6 +86,10 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
         if details.get("duration_str") and not meta.get("videoDuration"):
             meta["videoDuration"] = details["duration_str"]
 
+        meta["youtube_url"] = url
+        if details.get("video_id"):
+            meta["video_id"] = details["video_id"]
+
         # [과금 방지 2단계]: 분석 완료 결과 캐시 저장
         save_cached_analysis(url, analysis)
 
@@ -111,7 +115,7 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
     if not url:
         raise HTTPException(status_code=400, detail="유튜브 URL을 입력해주세요.")
 
-    # [과금 방지]: 캐시가 이미 있으면 즉시 완료된 task 반환
+    # [과금 방지]: 캐시가 이미 있으면 안내 정보와 함께 반환
     if not req.force_refresh:
         cached_data = get_cached_analysis(url)
         if cached_data:
@@ -122,7 +126,8 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
                 "youtube_url": url,
                 "status": "COMPLETED",
                 "progress": 100,
-                "stage": f"캐시 로드 완료! (API 과금 0원, 쇼츠 {len(cached_data.get('shorts', []))}개)",
+                "is_cached": True,
+                "stage": "이미 분석이 완료된 설교 영상입니다.",
                 "data": cached_data,
                 "error": None,
                 "created_at": now,
@@ -132,7 +137,7 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
                 "status": "success",
                 "task_id": task_id,
                 "is_cached": True,
-                "message": "이미 분석된 영상입니다. 과금 없이 캐시된 결과를 즉시 불러왔습니다."
+                "message": "이미 분석된 영상입니다. 하단의 '최근 분석된 설교 보관함' 또는 결과 탭에서 즉시 확인하실 수 있습니다."
             }
 
     task_id = f"task-{uuid.uuid4().hex[:8]}"

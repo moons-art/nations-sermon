@@ -107,11 +107,20 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             if target_transcript:
                 snippets = target_transcript.fetch()
                 lines = []
+                raw_snippets = []
                 for s in snippets:
                     mins = int(s.start // 60)
                     secs = int(s.start % 60)
-                    lines.append(f"[{mins:02d}:{secs:02d}] {s.text}")
+                    t_str = f"{mins:02d}:{secs:02d}"
+                    lines.append(f"[{t_str}] {s.text}")
+                    raw_snippets.append({
+                        "start": s.start,
+                        "duration": getattr(s, 'duration', 0.0),
+                        "text": s.text.strip(),
+                        "time_str": t_str
+                    })
                 details["transcript_text"] = "\n".join(lines)
+                details["raw_snippets"] = raw_snippets
                 logger.info(f"유튜브 실제 자막 추출 성공: {len(lines)}행")
         except Exception as e:
             logger.warning(f"youtube-transcript-api 자막 추출 실패: {e}")
@@ -143,8 +152,9 @@ def generate_local_test_video(output_path: Path, duration_seconds: int = 15) -> 
 def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_file: Path) -> Path:
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
-    start_sec = parse_time_to_seconds(start_time)
-    end_sec = parse_time_to_seconds(end_time)
+    start_sec = max(0, parse_time_to_seconds(start_time))
+    # 말문이 도중에 끊기지 않고 자연스럽게 호흡이 맺어지도록 끝부분에 0.5초 여유 마진 부여
+    end_sec = parse_time_to_seconds(end_time) + 0.5
 
     ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
     if ffmpeg_dir not in os.environ.get("PATH", ""):

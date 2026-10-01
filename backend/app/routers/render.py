@@ -70,3 +70,42 @@ async def delete_job(job_id: str):
         "status": "success",
         "message": f"작업({job_id})이 삭제되었습니다."
     }
+
+@router.get("/download-compressed/{job_id}")
+async def download_compressed(job_id: str):
+    """모바일/인스타/카톡 공유에 최적화된 저용량(3~4MB) 압축 다운로드"""
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    import subprocess
+    from app.config import OUTPUTS_DIR, FFMPEG_PATH
+
+    job = render_manager.get_job(job_id)
+    if not job or not job.get("file_path"):
+        raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
+
+    orig_path = Path(job["file_path"])
+    if not orig_path.exists():
+        raise HTTPException(status_code=404, detail="원본 비디오 파일이 존재하지 않습니다.")
+
+    compressed_path = OUTPUTS_DIR / f"compressed_{orig_path.name}"
+    # 이미 압축된 파일이 없거나 1000바이트 이하인 경우 생성
+    if not compressed_path.exists() or compressed_path.stat().st_size < 1000:
+        # CRF 26 + audio 128k로 3~4MB 최적 용량 달성
+        cmd = [
+            FFMPEG_PATH, "-y",
+            "-i", str(orig_path),
+            "-c:v", "libx264",
+            "-crf", "26",
+            "-preset", "faster",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            str(compressed_path)
+        ]
+        subprocess.run(cmd, check=True)
+
+    filename = f"shorts-{job.get('short_id', 'clip')}-compressed.mp4"
+    return FileResponse(
+        path=str(compressed_path),
+        filename=filename,
+        media_type="video/mp4"
+    )

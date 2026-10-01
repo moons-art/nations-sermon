@@ -7,3 +7,4 @@ aiofiles>=23.2.1
 python-multipart>=0.0.9
 requests>=2.31.0
 youtube-transcript-api>=0.6.2
+Pillow>=10.0.0

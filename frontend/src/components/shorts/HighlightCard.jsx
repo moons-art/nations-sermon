@@ -57,42 +57,83 @@ export default function HighlightCard({
   const startSeconds = parseTimeToSeconds(short.startTime);
   const endSeconds = parseTimeToSeconds(short.endTime) || startSeconds + 50;
 
-  // 템플릿별 시각 디자인 프리셋
+  // 템플릿별 시각 디자인 프리셋 (모든 템플릿: 검은 배경 박스 제거, 글자 외곽선)
   const templateStyles = {
+    cinema_letterbox: {
+      cardBg: 'bg-[#0B0C0E]',
+      qColor: 'text-white',
+      aColor: 'text-[#FFE600]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-white/20 text-white',
+      isLetterbox: true,
+    },
+    blue_wide: {
+      cardBg: 'bg-[#1E62D0]',
+      qColor: 'text-white',
+      aColor: 'text-[#FFE600]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-white/20 text-white',
+      isLetterbox: true,
+    },
+    yellow_wide: {
+      cardBg: 'bg-[#F4CF42]',
+      qColor: 'text-[#121212]',
+      aColor: 'text-[#181A22]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-black/10 text-black',
+      isLetterbox: true,
+    },
+    transparent_minimal: {
+      cardBg: 'bg-[#1C1D22]',
+      qColor: 'text-white',
+      aColor: 'text-[#FFE600]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-white/10 text-white/90',
+    },
     dark_minimal: {
       cardBg: 'bg-[#0E0E10]',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
-      subBg: 'bg-black/60 text-white border-white/20',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
       tagBg: 'bg-white/10 text-white/90',
     },
-    yellow_frame: {
+    yellow_minimal: {
       cardBg: 'bg-[#F4CF42]',
       qColor: 'text-[#121212]',
       aColor: 'text-[#181A22]',
-      subBg: 'bg-[#121212] text-[#F4CF42] border-black/40',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
       tagBg: 'bg-black/10 text-black',
-    },
-    vivid_blue: {
-      cardBg: 'bg-[#1E62D0]',
-      qColor: 'text-white',
-      aColor: 'text-[#FFF360]',
-      subBg: 'bg-black/60 text-[#FFF360] border-white/20',
-      tagBg: 'bg-white/15 text-white',
-    },
-    modern_grey: {
-      cardBg: 'bg-[#25282F]',
-      qColor: 'text-[#E0E0E0]',
-      aColor: 'text-white',
-      subBg: 'bg-black/60 text-white border-white/20',
-      tagBg: 'bg-white/10 text-white/90',
     },
     full_cinema: {
       cardBg: 'bg-slate-950',
       qColor: 'text-white',
       aColor: 'text-[#FFE600]',
-      subBg: 'bg-black/70 text-white border-white/30',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
       tagBg: 'bg-white/20 text-white',
+    },
+    // 기존 호환
+    vivid_blue: {
+      cardBg: 'bg-[#1E62D0]',
+      qColor: 'text-white',
+      aColor: 'text-[#FFE600]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-white/20 text-white',
+      isLetterbox: true,
+    },
+    yellow_frame: {
+      cardBg: 'bg-[#F4CF42]',
+      qColor: 'text-[#121212]',
+      aColor: 'text-[#181A22]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-black/10 text-black',
+      isLetterbox: true,
+    },
+    modern_grey: {
+      cardBg: 'bg-[#0E0E10]',
+      qColor: 'text-white',
+      aColor: 'text-[#FFE600]',
+      subBg: 'text-white font-extrabold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]',
+      tagBg: 'bg-white/10 text-white/90',
     },
   };
 
@@ -180,8 +221,8 @@ export default function HighlightCard({
                 <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-transparent to-black/90 pointer-events-none" />
               </div>
 
-              {/* 상단: 템플릿 헤더 (질문 & 답변) */}
-              <div className="relative z-10 space-y-1 text-center pt-1">
+              {/* 상단: 템플릿 헤더 (질문 & 답변 - 위치 아래로 내림) */}
+              <div className="relative z-10 space-y-1 text-center pt-4 pb-1">
                 <div className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/20 backdrop-blur-xs text-white/90">
                   {short.duration} 핵심
                 </div>
@@ -208,13 +249,12 @@ export default function HighlightCard({
                 </span>
               </div>
 
-              {/* 하단: 첫 번째 자막 및 교회 로고 */}
-              <div className="relative z-10 space-y-1.5 text-center pb-0.5">
-                <div className={`p-2 rounded-xl border backdrop-blur-md text-[11px] font-medium leading-snug line-clamp-2 shadow-xs ${currentTpl.subBg}`}>
+              {/* 하단: 첫 번째 자막 및 교회 로고 (자막 위치를 더 위로 올림) */}
+              <div className="relative z-10 space-y-2 text-center pb-2">
+                <div className={`p-2.5 rounded-xl border backdrop-blur-md text-[11px] font-medium leading-snug line-clamp-2 shadow-sm ${currentTpl.subBg}`}>
                   "{firstSubtitle}"
                 </div>
-                <div className="flex items-center justify-center gap-1.5 text-[9px] text-white/80 font-medium">
-                  <span>✝</span>
+                <div className="flex items-center justify-center gap-1.5 text-[9px] text-white/80 font-medium opacity-80">
                   <span>{churchName.replace('\n', ' ')}</span>
                 </div>
               </div>
@@ -252,10 +292,10 @@ export default function HighlightCard({
         <button
           type="button"
           onClick={() => onOpenSubtitleModal(short)}
-          className="flex-1 py-2 px-3 rounded-xl border border-[#E0DED7] text-xs font-medium text-[#66635E] hover:bg-[#FAF9F5] hover:text-[#282622] transition-colors flex items-center justify-center gap-1.5"
+          className="flex-1 py-2 px-2.5 rounded-xl border border-[#E0DED7] text-xs font-semibold text-[#44413C] hover:bg-[#FAF9F5] hover:text-[#282622] transition-colors flex items-center justify-center gap-1.5"
         >
-          <Edit3 className="w-3.5 h-3.5 text-[#807D77]" />
-          <span>자막 수정</span>
+          <Edit3 className="w-3.5 h-3.5 text-[#DA7756]" />
+          <span>제목·소제목 수정</span>
         </button>
 
         <button

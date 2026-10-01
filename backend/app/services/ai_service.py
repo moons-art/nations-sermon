@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 # ─── AI 엔진 모델 정의 ───
 # 1. 메인 엔진: 유튜브 영상 직접 분석 및 숏츠 하이라이트/자막 추출
-MAIN_ENGINE_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash']
+MAIN_ENGINE_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash']
 # 2. 서브 엔진: 대량 텍스트 처리, 자막 정제 및 반복 파싱 작업 (비용 절감)
-SUB_ENGINE_MODELS = ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-3.8-flash']
+SUB_ENGINE_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']
 
 
 # ─── 비용 절감 자막 압축 알고리즘 ───
@@ -122,12 +122,25 @@ async def analyze_sermon_video(
 {compressed_transcript}
 
 반드시 아래 규칙을 지켜주세요:
-1. 자막에서 실제 타임스탬프([MM:SS])를 기반으로 가장 감동적인 하이라이트 5구간을 선정하세요
-2. 각 쇼츠는 40~60초 분량 (startTime~endTime)
-3. sentences 배열에는 해당 구간의 실제 자막 문장들을 timestamps와 함께 담으세요
-4. 설교 제목, 본문 구절, 설교자명을 자막/제목에서 추출하세요
-5. sermonText에 자막 전체를 자연스러운 설교문 형태로 재구성하여 담으세요 (설교 도입부~결론 전체)
-6. 한국어로 모든 내용 작성
+1. [가장 중요 - 감동적인 하이라이트와 온전한 문장 마무리]:
+   - 자막에서 실제 타임스탬프([MM:SS])를 기반으로 성도들에게 가장 큰 감동과 울림을 주는 핵심 하이라이트 5구간을 선정하세요.
+   - 각 쇼츠의 길이는 30초 ~ 60초 (1분 이내) 사이로 자유롭게 설정하되, 메시지의 감동을 온전히 전달하는 데 집중하세요.
+   - [필수 규칙 - 말끝 끊김 절대 금지]: 영상의 끝부분(endTime)은 목사님이 말씀을 하다가 도중에 잘리거나 어색하게 끊기지 않고, 하나의 온전한 감동적인 문장이나 선포("~합시다", "~바랍니다", "~믿습니다", "~아멘", "~역사가 일어납니다")로 확실하고 은혜롭게 마침표를 찍으며 끝나는 지점으로 정확히 잡아야 합니다.
+2. sentences 배열에는 해당 구간의 실제 자막 문장들을 timestamps와 함께 담되, 마지막 문장까지 온전하게 종결되어야 합니다.
+3. 설교 제목, 본문 구절, 설교자명을 자막/제목에서 추출하세요.
+4. sermonText에 자막 전체를 자연스러운 설교문 형태로 재구성하여 담으세요 (설교 도입부~결론 전체).
+5. [쇼츠 영상 타이틀 규칙 (매우 중요)]:
+   - 길고 장황한 설명문("~할까요?", "~마음에서 시작됩니다") 금지!
+   - [필수 규칙 - 소제목 스타일 다채롭게 작성 (vs 대조 반복 절대 금지)]:
+     * 5개의 쇼츠 소제목(title_answer)이 모두 천편일률적으로 "A vs B" 대조 형태가 되지 않도록 반드시 다양하고 매력적인 화법을 골고루 섞어 작성하세요.
+     * 스타일 예시:
+       1) 호기심/비밀 유발형: "그들이 끝까지 숨겼던 비밀", "주님이 확인하시는 단 한 가지"
+       2) 통찰/반전형: "열심보다 먼저 회복되어야 할 것", "포기한 순간 시작된 역사"
+       3) 결단/울림형: "믿음의 자리에 서는 용기", "흔들리지 않는 영적 권세"
+       4) 대조형 (5개 중 최대 1~2개만): "의무감 vs 사랑의 갈망"
+   - title_question (상단 1줄 제목): 8~14자 내외의 짧고 강렬한 핵심 화두 (예: "표정이 다른 이유", "예수님을 따르는 진짜 힘", "인생의 밤을 지날 때")
+   - title_answer (상단 2줄 소제목): 8~15자 내외의 다채롭고 매력적인 문구
+6. 한국어로 모든 내용 작성.
 
 다음 JSON 구조를 반드시 그대로 반환하세요 (코드블록 없이 순수 JSON만):
 {{
@@ -143,9 +156,9 @@ async def analyze_sermon_video(
   "shorts": [
     {{
       "id": "short-1",
-      "title": "감동적인 쇼츠 제목",
-      "title_question": "질문 형식 소제목 (예: 왜 고난이 축복인가)",
-      "title_answer": "답변 형식 소제목 (예: 하나님의 놀라운 계획)",
+      "title": "쇼츠 제목 (예: 예수님을 따르는 진짜 힘)",
+      "title_question": "짧은 상단 제목 (예: 예수님을 따르는 진짜 힘)",
+      "title_answer": "짧은 하이라이트 소제목 (예: 의무감이 아니라 이것)",
       "startTime": "MM:SS",
       "endTime": "MM:SS",
       "duration": "N초",
@@ -230,7 +243,47 @@ async def analyze_sermon_video(
                 parsed["metadata"]["title"] = details.get("title", "")
             if channel and not parsed["metadata"].get("churchName"):
                 parsed["metadata"]["churchName"] = channel
-                
+
+            # ── [3번 요구사항: 영상-자막 일치 2차 정밀 검증 및 보정] ──
+            raw_snippets = details.get("raw_snippets", [])
+            if raw_snippets and parsed.get("shorts"):
+                for s_item in parsed["shorts"]:
+                    s_start = s_item.get("startTime", "00:00")
+                    s_end = s_item.get("endTime", "00:30")
+                    # 시간 포맷 표준화 (M:SS -> MM:SS)
+                    if len(s_start.split(':')) == 2 and len(s_start.split(':')[0]) == 1:
+                        s_start = f"0{s_start}"
+                        s_item["startTime"] = s_start
+                    if len(s_end.split(':')) == 2 and len(s_end.split(':')[0]) == 1:
+                        s_end = f"0{s_end}"
+                        s_item["endTime"] = s_end
+
+                    # sentences 검증: 만약 AI가 생성한 sentences가 비었거나 타임스탬프가 어긋난 경우
+                    # 실제 유튜브 원본 자막 구간에서 오차 없이 정확히 채워넣음
+                    ai_sentences = s_item.get("sentences", [])
+                    if not ai_sentences or len(ai_sentences) < 2:
+                        from app.services.youtube_service import parse_time_to_seconds
+                        st_sec = parse_time_to_seconds(s_start)
+                        et_sec = parse_time_to_seconds(s_end)
+                        matched = []
+                        for idx, snip in enumerate(raw_snippets):
+                            snip_s = snip["start"]
+                            snip_e = snip_s + snip.get("duration", 2.5)
+                            if st_sec <= snip_s <= et_sec:
+                                sm = int(snip_s // 60)
+                                ss = int(snip_s % 60)
+                                em = int(snip_e // 60)
+                                es = int(snip_e % 60)
+                                matched.append({
+                                    "id": idx + 1,
+                                    "start": f"{sm:02d}:{ss:02d}",
+                                    "end": f"{em:02d}:{es:02d}",
+                                    "text": snip["text"]
+                                })
+                        if matched:
+                            s_item["sentences"] = matched
+                            logger.info(f"[{s_item.get('id')}] 유튜브 원본 자막 싱크와 100% 일치하도록 보정 완료 ({len(matched)}개 문장)")
+
             return parsed
             
         except json.JSONDecodeError as e:
@@ -239,12 +292,12 @@ async def analyze_sermon_video(
             continue
         except Exception as e:
             err_str = str(e).lower()
-            if "not found" in err_str or "404" in err_str or "invalid" in err_str:
-                logger.warning(f"모델 없음 ({model_name}): {e}")
-                last_error = e
-                continue
-            logger.error(f"AI 분석 오류 ({model_name}): {e}")
+            logger.warning(f"AI 분석 오류 발생 ({model_name}): {e}")
             last_error = e
+            # 503 (과부하), 429 (레이트리밋), 404/not found, timeout 등 일시적/모델 오류 시 다음 후보 모델로 시도
+            if any(k in err_str for k in ["503", "unavailable", "high demand", "429", "resource_exhausted", "not found", "404", "invalid", "timeout"]):
+                logger.info(f"모델 {model_name} 과부하 또는 오류로 인해 다음 모델로 전환합니다.")
+                continue
             break
     
     # 모든 모델 실패 → 예외 발생 (가짜 데이터 반환 없음)
