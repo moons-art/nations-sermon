@@ -189,18 +189,26 @@ export default function ShortsTab({
 
       const queueRes = await queueRenderItems(payload);
       if (onShortsQueued) onShortsQueued();
-      setShowCreatedNotice(true);
+
+      // 등록 즉시 [쇼츠 제작 목록] 화면으로 자동 이동하여 실시간 인코딩 진행 상황 표시
+      if (onNavigateToShortsList) {
+        onNavigateToShortsList();
+      } else {
+        setShowCreatedNotice(true);
+      }
 
       // Cloud Run 환경에서 CPU Throttling으로 인한 멈춤을 방지하기 위해,
       // 브라우저 커넥션을 유지하며 각 작업을 순차적으로 직접 렌더링 완수
       if (queueRes?.jobs && queueRes.jobs.length > 0) {
-        for (const job of queueRes.jobs) {
-          try {
-            await executeRenderJob(job.job_id);
-          } catch (jobErr) {
-            console.warn(`[쇼츠 렌더링 완료 대기 중 알림] Job ${job.job_id}:`, jobErr);
+        (async () => {
+          for (const job of queueRes.jobs) {
+            try {
+              await executeRenderJob(job.job_id);
+            } catch (jobErr) {
+              console.warn(`[쇼츠 렌더링 완료 대기 중 알림] Job ${job.job_id}:`, jobErr);
+            }
           }
-        }
+        })();
       }
     } catch (err) {
       console.error(err);
