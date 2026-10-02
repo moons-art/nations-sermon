@@ -275,9 +275,9 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
     logger.info(
-        f"🚀 [하이라이트 구간 부분 다운로드] "
+        f"🚀 [초고속 하이라이트 구간 다운로드] "
         f"URL: {normalized_url} | 구간: {start_time} ~ {end_time} "
-        f"({start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초) | 720p mp4 제한"
+        f"({start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초) | FFmpeg Fast-Seek (-c copy) 적용"
     )
 
     import yt_dlp
@@ -315,44 +315,104 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         'best[height<=1080]/best'
     )
 
-    # [1차 시도]: 720p MP4 구간 다운로드 (정석 download_ranges + 프록시)
+    proxy_url = get_youtube_proxy()
+
+    # ─────────────────────────────────────────────────────────────
+    # [1차 시도]: FFmpeg Fast-Seek 다운로더 (45분 지점으로 즉시 점프, -c copy 초고속)
+    # ─────────────────────────────────────────────────────────────
     try:
-        opts = {
+        opts_fast = {
             'format': format_720p,
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
             'download_ranges': section_ranges,
-            'force_keyframes_at_cuts': True,
+            'external_downloader': {'default': 'ffmpeg'},
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
+            'socket_timeout': 20,
             'quiet': False,
             'no_warnings': False,
-            'retries': 3,
-            'fragment_retries': 3,
+            'retries': 2,
+            'fragment_retries': 2,
         }
-        apply_youtube_proxy(opts)
+        apply_youtube_proxy(opts_fast)
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with yt_dlp.YoutubeDL(opts_fast) as ydl:
             ydl.download([normalized_url])
 
         found = find_downloaded_file(target_file)
         if found:
             file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [구간 부분 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB, 트래픽 절약 완수)")
+            logger.info(f"✅ [1차 FFmpeg Fast-Seek 성공] 파일: {found.name} ({file_size_mb:.2f} MB, 초고속 다운로드 완료)")
             return found
     except Exception as e1:
-        logger.warning(f"⚠️ 1차 720p 분할 다운로드 실패 ({e1}) -> 2차: 단일 스트림 구간 다운로드 폴백")
+        logger.warning(f"⚠️ 1차 FFmpeg Fast-Seek 실패 ({e1}) -> 2차: Direct Stream URL + FFmpeg 직접 추출 시도")
 
-    # [2차 시도 (단순 폴백)]: 단일 통합 포맷 720p 구간 다운로드
+    # ─────────────────────────────────────────────────────────────
+    # [2차 시도]: yt-dlp 스트림 URL 추출 -> FFmpeg 직접 input seek (-ss / -t / -c copy)
+    # ─────────────────────────────────────────────────────────────
+    try:
+        opts_extract = {
+            'format': format_720p,
+            'quiet': True,
+            'no_warnings': True,
+            'remote_components': ['ejs:github'],
+            'socket_timeout': 15,
+        }
+        apply_youtube_proxy(opts_extract)
+
+        with yt_dlp.YoutubeDL(opts_extract) as ydl:
+            info = ydl.extract_info(normalized_url, download=False)
+
+        req_formats = info.get('requested_formats') or [info]
+        video_fmt = next((f for f in req_formats if f.get('vcodec') != 'none'), None)
+        audio_fmt = next((f for f in req_formats if f.get('acodec') != 'none'), None)
+
+        if video_fmt and video_fmt.get('url'):
+            cmd = [FFMPEG_PATH, "-y"]
+            if proxy_url:
+                cmd.extend(["-http_proxy", proxy_url])
+
+            cmd.extend([
+                "-ss", str(start_sec),
+                "-t", str(clip_duration),
+                "-i", video_fmt['url'],
+            ])
+
+            if audio_fmt and audio_fmt.get('url') and audio_fmt['url'] != video_fmt['url']:
+                if proxy_url:
+                    cmd.extend(["-http_proxy", proxy_url])
+                cmd.extend([
+                    "-ss", str(start_sec),
+                    "-t", str(clip_duration),
+                    "-i", audio_fmt['url'],
+                ])
+                cmd.extend(["-c:v", "copy", "-c:a", "copy", str(target_file)])
+            else:
+                cmd.extend(["-c", "copy", str(target_file)])
+
+            logger.info(f"⚡ [2차 FFmpeg 직접 Seek 실행] 구간: {start_sec:.1f}s ~ {end_sec:.1f}s")
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40)
+            if res.returncode == 0 and target_file.exists() and target_file.stat().st_size > 10000:
+                file_size_mb = target_file.stat().st_size / (1024 * 1024)
+                logger.info(f"✅ [2차 FFmpeg 직접 Seek 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+                return target_file
+    except Exception as e2:
+        logger.warning(f"⚠️ 2차 Direct Stream Seek 실패: {e2} -> 3차 단일 포맷 폴백 시도")
+
+    # ─────────────────────────────────────────────────────────────
+    # [3차 시도 (최후 폴백)]: 단일 포맷 best[height<=720] + FFmpeg Seek
+    # ─────────────────────────────────────────────────────────────
     try:
         opts_fallback = {
             'format': 'best[height<=720]/best',
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
             'download_ranges': section_ranges,
-            'force_keyframes_at_cuts': True,
+            'external_downloader': {'default': 'ffmpeg'},
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
+            'socket_timeout': 25,
             'retries': 2,
         }
         apply_youtube_proxy(opts_fallback)
@@ -363,10 +423,10 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         found = find_downloaded_file(target_file)
         if found:
             file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
+            logger.info(f"✅ [3차 폴백 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
             return found
-    except Exception as e2:
-        logger.error(f"❌ 2차 폴백 다운로드 실패: {e2}")
+    except Exception as e3:
+        logger.error(f"❌ 3차 폴백 다운로드 실패: {e3}")
 
     found = find_downloaded_file(target_file)
     if found:
