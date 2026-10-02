@@ -318,38 +318,8 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     proxy_url = get_youtube_proxy()
 
     # ─────────────────────────────────────────────────────────────
-    # [1차 시도]: FFmpeg Fast-Seek 다운로더 (45분 지점으로 즉시 점프, -c copy 초고속)
-    # ─────────────────────────────────────────────────────────────
-    try:
-        opts_fast = {
-            'format': format_720p,
-            'merge_output_format': 'mp4',
-            'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
-            'download_ranges': section_ranges,
-            'external_downloader': {'default': 'ffmpeg'},
-            'ffmpeg_location': ffmpeg_dir,
-            'remote_components': ['ejs:github'],
-            'socket_timeout': 20,
-            'quiet': False,
-            'no_warnings': False,
-            'retries': 2,
-            'fragment_retries': 2,
-        }
-        apply_youtube_proxy(opts_fast)
-
-        with yt_dlp.YoutubeDL(opts_fast) as ydl:
-            ydl.download([normalized_url])
-
-        found = find_downloaded_file(target_file)
-        if found:
-            file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [1차 FFmpeg Fast-Seek 성공] 파일: {found.name} ({file_size_mb:.2f} MB, 초고속 다운로드 완료)")
-            return found
-    except Exception as e1:
-        logger.warning(f"⚠️ 1차 FFmpeg Fast-Seek 실패 ({e1}) -> 2차: Direct Stream URL + FFmpeg 직접 추출 시도")
-
-    # ─────────────────────────────────────────────────────────────
-    # [2차 시도]: yt-dlp 스트림 URL 추출 -> FFmpeg 직접 input seek (-ss / -t / -c copy)
+    # [1차 시도]: yt-dlp 스트림 URL 추출 -> FFmpeg 직접 input seek (-ss / -t / -c copy)
+    # (DASH 청크 순차 다운로드를 완벽히 회피하고, HTTP Range 요청으로 즉시 45분 지점 점프)
     # ─────────────────────────────────────────────────────────────
     try:
         opts_extract = {
@@ -391,17 +361,17 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             else:
                 cmd.extend(["-c", "copy", str(target_file)])
 
-            logger.info(f"⚡ [2차 FFmpeg 직접 Seek 실행] 구간: {start_sec:.1f}s ~ {end_sec:.1f}s")
+            logger.info(f"⚡ [1차 FFmpeg 직접 Seek 실행] 구간: {start_sec:.1f}s ~ {end_sec:.1f}s")
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40)
             if res.returncode == 0 and target_file.exists() and target_file.stat().st_size > 10000:
                 file_size_mb = target_file.stat().st_size / (1024 * 1024)
-                logger.info(f"✅ [2차 FFmpeg 직접 Seek 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+                logger.info(f"✅ [1차 FFmpeg 직접 Seek 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
                 return target_file
     except Exception as e2:
-        logger.warning(f"⚠️ 2차 Direct Stream Seek 실패: {e2} -> 3차 단일 포맷 폴백 시도")
+        logger.warning(f"⚠️ 1차 Direct Stream Seek 실패: {e2} -> 2차 단일 포맷 폴백 시도")
 
     # ─────────────────────────────────────────────────────────────
-    # [3차 시도 (최후 폴백)]: 단일 포맷 best[height<=720] + FFmpeg Seek
+    # [2차 시도 (최후 폴백)]: 단일 포맷 best[height<=720] + FFmpeg Seek
     # ─────────────────────────────────────────────────────────────
     try:
         opts_fallback = {
@@ -423,10 +393,10 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         found = find_downloaded_file(target_file)
         if found:
             file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [3차 폴백 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
+            logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
             return found
     except Exception as e3:
-        logger.error(f"❌ 3차 폴백 다운로드 실패: {e3}")
+        logger.error(f"❌ 2차 폴백 다운로드 실패: {e3}")
 
     found = find_downloaded_file(target_file)
     if found:
