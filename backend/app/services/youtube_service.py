@@ -9,6 +9,7 @@ from app.config import FFMPEG_PATH, TEST_VIDEO_DIR
 logger = logging.getLogger(__name__)
 
 def extract_video_id(url: str) -> str:
+    """유튜브 URL에서 11자리 비디오 ID 추출"""
     patterns = [
         r"(?:v=)([0-9A-Za-z_-]{11})",
         r"youtu\.be\/([0-9A-Za-z_-]{11})",
@@ -24,6 +25,7 @@ def extract_video_id(url: str) -> str:
     return ""
 
 def parse_time_to_seconds(time_str: str) -> int:
+    """MM:SS 또는 HH:MM:SS 형식의 시간을 초 단위 정수로 변환"""
     parts = list(map(int, time_str.strip().split(":")))
     if len(parts) == 2:
         return parts[0] * 60 + parts[1]
@@ -31,76 +33,41 @@ def parse_time_to_seconds(time_str: str) -> int:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
     return 0
 
-import base64
-import copy
-import tempfile
-
-def get_cookie_file_path() -> Optional[str]:
-    """환경변수 YOUTUBE_COOKIES_BASE64가 있으면 디코딩하여 /tmp/youtube_cookies.txt에 저장 후 경로 반환"""
-    cookies_b64 = os.getenv("YOUTUBE_COOKIES_BASE64", "").strip()
-    if not cookies_b64:
-        return None
-    try:
-        # 리눅스/Cloud Run은 /tmp 우선, 기타 환경은 시스템 임시 디렉토리
-        tmp_dir = Path("/tmp")
-        if not tmp_dir.exists():
-            tmp_dir = Path(tempfile.gettempdir())
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        cookie_path = tmp_dir / "youtube_cookies.txt"
-        decoded = base64.b64decode(cookies_b64).decode("utf-8", errors="ignore")
-        cookie_path.write_text(decoded, encoding="utf-8")
-        
-        size = cookie_path.stat().st_size
-        logger.info(f"🍪 [쿠키 파일 로드 성공] 경로: {cookie_path} (크기: {size} bytes)")
-        return str(cookie_path)
-    except Exception as e:
-        logger.error(f"❌ [쿠키 파일 디코딩 실패] YOUTUBE_COOKIES_BASE64 디코딩 중 에러: {e}")
-        return None
-
-def apply_proxy_and_cookies(ydl_opts: Dict[str, Any], use_cookies: bool = True, custom_clients: Optional[list] = None):
-    """
-    환경변수 기반 프록시(YOUTUBE_PROXY), 쿠키(YOUTUBE_COOKIES_BASE64),
-    및 PO Token(bgutil-ytdlp-pot-provider: http://127.0.0.1:4416) 최우선 주입.
-    
-    * 중요: mweb 클라이언트는 'The page needs to be reloaded' 에러를 유발하므로 제외하고
-      안정적인 web_safari, web, tv 클라이언트를 우선 사용합니다.
-    """
-    # 1. 프록시 지원 (YOUTUBE_PROXY 최우선 보장)
+def get_youtube_proxy() -> Optional[str]:
+    """시스템 환경변수 YOUTUBE_PROXY 값을 조회하고 유효한 경우 반환 (미설정 시 None)"""
     proxy = os.getenv("YOUTUBE_PROXY", "").strip()
-    if proxy:
-        ydl_opts["proxy"] = proxy
-        masked_proxy = re.sub(r':([^:@]+)@', ':****@', proxy)
-        logger.info(f"🌐 [프록시 적용] YOUTUBE_PROXY 활성화: {masked_proxy}")
-    else:
-        logger.info("ℹ️ [프록시 미적용] YOUTUBE_PROXY 환경변수가 설정되지 않았습니다 (직접 연결).")
+    return proxy if proxy else None
 
-    # 2. PO Token Provider (bgutil-ytdlp-pot-provider HTTP 포트 4416) 연동
+def apply_youtube_proxy(ydl_opts: Dict[str, Any]):
+    """
+    유튜브 전용 프록시(YOUTUBE_PROXY) 및 PO Token Provider(4416) 연동.
+    - 시스템 전역 환경변수는 일절 오염시키지 않고, 오직 ydl_opts['proxy']에만 핀셋 주입.
+    - 환경변수가 없으면 직접 연결(Fallback).
+    - 쿠키 파일, 억지 User-Agent 변조, player_client 강제 조작 코드 완전 제거.
+    """
+    proxy_url = get_youtube_proxy()
+    if proxy_url:
+        ydl_opts["proxy"] = proxy_url
+        masked_proxy = re.sub(r':([^:@]+)@', ':****@', proxy_url)
+        logger.info(f"🌐 [주거용 프록시 적용] yt-dlp 프록시 주입 완료: {masked_proxy}")
+    else:
+        ydl_opts.pop("proxy", None)
+
+    # PO Token Provider 연동 (Docker 컨테이너 4416 포트)
     extractor_args = ydl_opts.setdefault("extractor_args", {})
     extractor_args["youtubepot-bgutilhttp"] = {
         "base_url": ["http://127.0.0.1:4416"]
     }
 
-    # 3. 쿠키 지원 및 클라이언트 분기
-    cookie_file = get_cookie_file_path() if use_cookies else None
-    if cookie_file:
-        ydl_opts["cookiefile"] = cookie_file
-        ydl_opts["user_agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-        clients = custom_clients or ["web_safari", "web", "tv"]
-        extractor_args["youtube"] = {
-            "player_client": clients
-        }
-        logger.info(f"🍪 [쿠키 + PO Token 연동] 클라이언트({clients}) + PO Token 설정 완료 (경로: {cookie_file})")
-    else:
-        ydl_opts.pop("cookiefile", None)
-        ydl_opts["user_agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-        clients = custom_clients or ["tv", "web_safari", "web", "android"]
-        extractor_args["youtube"] = {
-            "player_client": clients
-        }
-        logger.info(f"ℹ️ [쿠키 미사용 / PO Token 전용] 클라이언트({clients}) + PO Token 활성화")
+# 레거시 호환용 별칭
+apply_proxy_and_cookies = lambda opts, *args, **kwargs: apply_youtube_proxy(opts)
 
 def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
+    """
+    [1단계: 분석 및 카드뉴스 생성을 위한 자막 및 메타데이터 추출]
+    - 전체 비디오/오디오 다운로드 없이(skip_download=True) 오직 '자막'과 메타데이터만 추출.
+    - 프록시 트래픽(1GB)을 극대화 절약하여 수 KB 수준의 텍스트 데이터만 통신.
+    """
     video_id = extract_video_id(url)
     default_thumb = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
     details = {
@@ -119,9 +86,7 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
     if ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
-    # ─────────────────────────────────────────────────────────────
-    # [1순위]: 쿠키 및 EJS가 적용된 yt-dlp로 메타데이터 및 실제 자막 추출
-    # ─────────────────────────────────────────────────────────────
+    # 1순위: yt-dlp로 자막 목록 및 메타데이터 조회
     try:
         import yt_dlp
         import urllib.request
@@ -136,11 +101,8 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             'subtitleslangs': ['ko', 'ko-KR', 'ko-kr', 'en'],
             'remote_components': ['ejs:github'],
             'ffmpeg_location': ffmpeg_dir,
-            'http_headers': {
-                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-            },
         }
-        apply_proxy_and_cookies(ydl_opts)
+        apply_youtube_proxy(ydl_opts)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -156,7 +118,7 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 secs = int(dur % 60)
                 details["duration_str"] = f"{mins:02d}:{secs:02d}"
 
-            # 자막 데이터(자동생성 또는 공식 자막) 탐색
+            # 한국어 자막(공식 또는 자동생성) json3 포맷 탐색
             sub_candidates = []
             for lang_key in ['ko', 'ko-KR', 'ko-kr']:
                 if lang_key in info.get('subtitles', {}):
@@ -169,13 +131,18 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 target_url = sub_candidates[0].get('url')
 
             if target_url:
+                proxy_url = get_youtube_proxy()
                 req = urllib.request.Request(target_url, headers={
-                    'User-Agent': ydl_opts.get('user_agent', 'Mozilla/5.0'),
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8'
                 })
-                raw_data = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', errors='ignore')
-                
-                # json3 포맷 파싱
+                if proxy_url:
+                    proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
+                    opener = urllib.request.build_opener(proxy_handler)
+                    raw_data = opener.open(req, timeout=15).read().decode('utf-8', errors='ignore')
+                else:
+                    raw_data = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', errors='ignore')
+
                 if 'events' in raw_data:
                     sub_data = pyjson.loads(raw_data)
                     lines = []
@@ -200,19 +167,28 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                     if lines:
                         details["transcript_text"] = "\n".join(lines)
                         details["raw_snippets"] = raw_snippets
-                        logger.info(f"✅ [1순위 yt-dlp 실제 자막 추출 성공] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
-                        logger.info(f"📜 [자막 샘플(앞 200자)]: {details['transcript_text'][:200]}...")
-
+                        logger.info(f"✅ [자막 추출 성공 (yt-dlp)] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
     except Exception as e:
-        logger.warning(f"yt-dlp 1순위 자막/메타데이터 추출 실패: {e}")
+        logger.warning(f"yt-dlp 자막/메타데이터 추출 실패: {e}")
 
-    # ─────────────────────────────────────────────────────────────
-    # [2순위 폴백]: youtube-transcript-api 시도
-    # ─────────────────────────────────────────────────────────────
+    # 2순위: youtube-transcript-api 폴백 (프록시 핀셋 연동)
     if not details.get("transcript_text") and video_id:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
-            api = YouTubeTranscriptApi()
+            proxy_url = get_youtube_proxy()
+            api = None
+            if proxy_url:
+                try:
+                    from youtube_transcript_api.proxies import GenericProxyConfig
+                    proxy_config = GenericProxyConfig(http_url=proxy_url, https_url=proxy_url)
+                    api = YouTubeTranscriptApi(proxy_config=proxy_config)
+                    logger.info("🌐 [youtube-transcript-api] 프록시 핀셋 적용 완료")
+                except Exception as pe:
+                    logger.warning(f"⚠️ youtube-transcript-api 프록시 설정 실패 ({pe}), 직접 연결 시도")
+                    api = YouTubeTranscriptApi()
+            else:
+                api = YouTubeTranscriptApi()
+
             snippets = None
             try:
                 snippets = api.fetch(video_id, languages=['ko', 'ko-KR', 'ko-kr'])
@@ -240,18 +216,17 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                     })
                 details["transcript_text"] = "\n".join(lines)
                 details["raw_snippets"] = raw_snippets
-                logger.info(f"✅ [2순위 API 실제 자막 추출 성공] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
-                logger.info(f"📜 [자막 샘플(앞 200자)]: {details['transcript_text'][:200]}...")
+                logger.info(f"✅ [자막 추출 성공 (API 폴백)] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
         except Exception as e:
             logger.warning(f"youtube-transcript-api 2순위 자막 추출 실패: {e}")
 
-    # 메타데이터 보정
     if video_id and not details.get("thumbnail"):
         details["thumbnail"] = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
 
     return details
 
 def generate_local_test_video(output_path: Path, duration_seconds: int = 15) -> Path:
+    """영상 없는 설교문(아이디어 메모/초안) 숏폼 생성을 위한 배경 비디오 생성"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists() and output_path.stat().st_size > 1000:
         return output_path
@@ -274,6 +249,12 @@ def generate_local_test_video(output_path: Path, duration_seconds: int = 15) -> 
     return output_path
 
 def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_file: Path) -> Path:
+    """
+    [2단계: 5개 하이라이트 쇼츠 구간만 부분 다운로드]
+    - 전체 1시간짜리 영상을 통째로 다운로드하지 않고, 지정된 하이라이트 구간만 download_ranges로 추출.
+    - 화질을 쇼츠용 최적 720p mp4(최대 1080p)로 엄격히 제한하여 프록시 트래픽(1GB) 소모 극소화.
+    - yt-dlp의 'proxy' 옵션을 통해 내부 FFmpeg/HTTP 스트림 통신에 프록시 자동 유지.
+    """
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
     video_id = extract_video_id(url)
@@ -284,7 +265,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     raw_start = parse_time_to_seconds(start_time)
     raw_end = parse_time_to_seconds(end_time)
 
-    # 앞뒤 여유 1.5초 마진 부여 (호흡 끊김 방지 및 키프레임 보정)
+    # 앞뒤 1.5초 여유 마진 (호흡 및 키프레임 보정)
     start_sec = max(0.0, float(raw_start) - 1.5)
     end_sec = float(raw_end) + 1.5
     clip_duration = max(3.0, end_sec - start_sec)
@@ -294,30 +275,17 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
     logger.info(
-        f"🚀 [유튜브 클립 부분 다운로드 시작] "
-        f"정규화 URL: {normalized_url} | 구간: {start_time} ~ {end_time} "
-        f"(추출 범위: {start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초)"
+        f"🚀 [하이라이트 구간 부분 다운로드] "
+        f"URL: {normalized_url} | 구간: {start_time} ~ {end_time} "
+        f"({start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초) | 720p mp4 제한"
     )
 
     import yt_dlp
 
-    # 공통 옵션 베이스 (EJS 복호화 컴포넌트 및 상세 디버깅 로그 활성화)
-    base_opts = {
-        'ffmpeg_location': ffmpeg_dir,
-        'remote_components': ['ejs:github'],
-        'verbose': True,
-        'quiet': False,
-        'no_warnings': False,
-        'http_headers': {
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        },
-        'retries': 3,
-        'fragment_retries': 3,
-    }
-    apply_proxy_and_cookies(base_opts)
+    def section_ranges(info_dict, ydl):
+        return [{'start_time': start_sec, 'end_time': end_sec}]
 
     def find_downloaded_file(base_path: Path) -> Optional[Path]:
-        """yt-dlp가 다른 확장자(.mkv, .webm)나 임시 이름으로 저장했을 때 자동 탐색"""
         if base_path.exists() and base_path.stat().st_size > 10000:
             return base_path
         parent = base_path.parent
@@ -325,11 +293,9 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         candidates = list(parent.glob(f"{stem}*"))
         for cand in candidates:
             if cand.is_file() and not cand.name.endswith(".part") and cand.stat().st_size > 10000:
-                # 만약 mp4가 아니면 mp4로 변환/이름 변경
                 if cand.suffix.lower() == ".mp4":
                     return cand
                 else:
-                    logger.info(f"🔄 다운로드된 파일({cand.name})을 최종 MP4({base_path.name})로 변환합니다.")
                     cmd = [FFMPEG_PATH, "-y", "-i", str(cand), "-c", "copy", str(base_path)]
                     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     if base_path.exists() and base_path.stat().st_size > 10000:
@@ -340,152 +306,72 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                         return base_path
         return None
 
-    last_errors = []
+    # 트래픽 절약 720p MP4 제한 포맷 (원본 4K/1080p 전체 다운로드 원천 방지)
+    format_720p = (
+        'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/'
+        'bestvideo[height<=720]+bestaudio/'
+        'best[height<=720][ext=mp4]/'
+        'best[height<=720]/'
+        'best[height<=1080]/best'
+    )
 
-    def section_ranges(info_dict, ydl):
-        return [{'start_time': start_sec, 'end_time': end_sec}]
-
-    # ─────────────────────────────────────────────────────────────
-    # [1차 시도]: 쿠키 + web_safari, web, tv + native download_ranges
-    # ─────────────────────────────────────────────────────────────
+    # [1차 시도]: 720p MP4 구간 다운로드 (정석 download_ranges + 프록시)
     try:
-        opts_1 = copy.deepcopy(base_opts)
-        opts_1.update({
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
+        opts = {
+            'format': format_720p,
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
             'download_ranges': section_ranges,
             'force_keyframes_at_cuts': True,
-        })
-        if "proxy" in base_opts:
-            opts_1["proxy"] = base_opts["proxy"]
-
-        with yt_dlp.YoutubeDL(opts_1) as ydl:
-            ydl.download([normalized_url])
-
-        found = find_downloaded_file(target_file)
-        if found:
-            file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [1차 쿠키+POT 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
-            return found
-    except Exception as e1:
-        last_errors.append(f"1차(쿠키+POT): {e1}")
-        logger.warning(f"⚠️ 1차 다운로드 실패 ({e1}) -> 2차: 쿠키 세션 차단 우회(쿠키 제외, PO Token 단독) 시도")
-
-    # ─────────────────────────────────────────────────────────────
-    # [2차 시도]: 쿠키 제거! 순수 PO Token(4416) + TV/Web/Android 클라이언트 + download_ranges
-    # 만약 쿠키가 만료/불일치하여 'The page needs to be reloaded'를 유발한 경우 완벽 해결
-    # ─────────────────────────────────────────────────────────────
-    try:
-        opts_2 = {
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
-            'verbose': True,
             'quiet': False,
             'no_warnings': False,
-            'http_headers': {
-                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-            },
             'retries': 3,
             'fragment_retries': 3,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
+        }
+        apply_youtube_proxy(opts)
+
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([normalized_url])
+
+        found = find_downloaded_file(target_file)
+        if found:
+            file_size_mb = found.stat().st_size / (1024 * 1024)
+            logger.info(f"✅ [구간 부분 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB, 트래픽 절약 완수)")
+            return found
+    except Exception as e1:
+        logger.warning(f"⚠️ 1차 720p 분할 다운로드 실패 ({e1}) -> 2차: 단일 스트림 구간 다운로드 폴백")
+
+    # [2차 시도 (단순 폴백)]: 단일 통합 포맷 720p 구간 다운로드
+    try:
+        opts_fallback = {
+            'format': 'best[height<=720]/best',
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
             'download_ranges': section_ranges,
             'force_keyframes_at_cuts': True,
-        }
-        apply_proxy_and_cookies(opts_2, use_cookies=False, custom_clients=["tv", "web_safari", "web", "android"])
-        if "proxy" in base_opts:
-            opts_2["proxy"] = base_opts["proxy"]
-
-        with yt_dlp.YoutubeDL(opts_2) as ydl:
-            ydl.download([normalized_url])
-
-        found = find_downloaded_file(target_file)
-        if found:
-            file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [2차 순수 POT 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
-            return found
-    except Exception as e2:
-        last_errors.append(f"2차(순수POT): {e2}")
-        logger.warning(f"⚠️ 2차 다운로드 실패: {e2} -> 3차 external_downloader 시도")
-
-    # ─────────────────────────────────────────────────────────────
-    # [3차 시도]: external_downloader ffmpeg
-    # ─────────────────────────────────────────────────────────────
-    try:
-        opts_3 = copy.deepcopy(base_opts)
-        opts_3.update({
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
-            'merge_output_format': 'mp4',
-            'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
-            'external_downloader': {'default': 'ffmpeg'},
-            'external_downloader_args': {'ffmpeg_i': ['-ss', str(start_sec), '-to', str(end_sec)]},
-        })
-        if "proxy" in base_opts:
-            opts_3["proxy"] = base_opts["proxy"]
-
-        with yt_dlp.YoutubeDL(opts_3) as ydl:
-            ydl.download([normalized_url])
-
-        found = find_downloaded_file(target_file)
-        if found:
-            file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [3차 external_downloader 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
-            return found
-    except Exception as e3:
-        last_errors.append(f"3차(external_downloader): {e3}")
-        logger.warning(f"⚠️ 3차 다운로드 실패: {e3}")
-
-    # ─────────────────────────────────────────────────────────────
-    # [4차 시도 (최후 폴백)]: 단일 format='best' 직접 다운로드 후 ffmpeg 자르기
-    # ─────────────────────────────────────────────────────────────
-    try:
-        opts_4 = {
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
-            'format': 'best/bestvideo+bestaudio',
-            'merge_output_format': 'mp4',
-            'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
+            'retries': 2,
         }
-        apply_proxy_and_cookies(opts_4, use_cookies=False, custom_clients=["tv", "android"])
-        if "proxy" in base_opts:
-            opts_4["proxy"] = base_opts["proxy"]
+        apply_youtube_proxy(opts_fallback)
 
-        with yt_dlp.YoutubeDL(opts_4) as ydl:
+        with yt_dlp.YoutubeDL(opts_fallback) as ydl:
             ydl.download([normalized_url])
 
         found = find_downloaded_file(target_file)
         if found:
-            temp_cut = target_file.parent / f"cut_{target_file.name}"
-            cut_cmd = [
-                FFMPEG_PATH, "-y",
-                "-ss", str(start_sec),
-                "-to", str(end_sec),
-                "-i", str(found),
-                "-c", "copy",
-                str(temp_cut)
-            ]
-            subprocess.run(cut_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if temp_cut.exists() and temp_cut.stat().st_size > 10000:
-                found.unlink(missing_ok=True)
-                temp_cut.rename(target_file)
-                file_size_mb = target_file.stat().st_size / (1024 * 1024)
-                logger.info(f"✅ [4차 direct_download + ffmpeg cut 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
-                return target_file
+            file_size_mb = found.stat().st_size / (1024 * 1024)
+            logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
             return found
-    except Exception as e4:
-        last_errors.append(f"4차(direct_download): {e4}")
-        logger.warning(f"⚠️ 4차 다운로드 실패: {e4}")
+    except Exception as e2:
+        logger.error(f"❌ 2차 폴백 다운로드 실패: {e2}")
 
     found = find_downloaded_file(target_file)
     if found:
         return found
 
-    error_summary = " | ".join(last_errors)
     raise RuntimeError(
-        f"유튜브 영상 다운로드에 실패했습니다.\n"
-        f"구간: {start_time} ~ {end_time}\n"
-        f"상세 원인: {error_summary}"
+        f"유튜브 쇼츠 구간 영상 다운로드에 실패했습니다. (구간: {start_time} ~ {end_time})"
     )
-

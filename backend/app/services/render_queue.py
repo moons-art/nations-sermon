@@ -227,6 +227,8 @@ class SequentialRenderManager:
                 self.queue.task_done()
                 continue
 
+            source_video = None
+            output_video = None
             try:
                 logger.info(f"[순차 렌더링 시작] Job ID: {job_id}, Title: {job.title}")
                 job.status = "PROCESSING"
@@ -270,7 +272,7 @@ class SequentialRenderManager:
                 )
 
                 if job.status == "CANCELLED" or job_id not in self.jobs:
-                    if source_video.exists():
+                    if source_video and source_video.exists():
                         source_video.unlink()
                     continue
 
@@ -297,9 +299,9 @@ class SequentialRenderManager:
                 )
 
                 if job.status == "CANCELLED" or job_id not in self.jobs:
-                    if source_video.exists():
+                    if source_video and source_video.exists():
                         source_video.unlink()
-                    if output_video.exists():
+                    if output_video and output_video.exists():
                         output_video.unlink()
                     continue
 
@@ -320,13 +322,6 @@ class SequentialRenderManager:
                 self._save_job_meta(job)
                 logger.info(f"[순차 렌더링 완료] Job ID: {job_id} -> {output_video.name} (URL: {job.video_url})")
 
-                # 원본 임시 소스 파일 정리
-                if source_video.exists():
-                    try:
-                        source_video.unlink()
-                    except Exception:
-                        pass
-
             except Exception as e:
                 logger.error(f"[렌더링 실패] Job ID: {job_id}, 에러: {e}", exc_info=True)
                 if job_id in self.jobs and self.jobs[job_id].status != "CANCELLED":
@@ -335,6 +330,24 @@ class SequentialRenderManager:
                     job.updated_at = time.time()
 
             finally:
+                # [메모리 OOM 방지] Cloud Run 환경 메모리 절약을 위해 임시 다운로드 소스 및 조각 파일 즉시 제거
+                if source_video and source_video.exists():
+                    try:
+                        source_video.unlink()
+                        logger.info(f"🧹 [메모리 정리] 임시 소스 영상 파일 삭제 완료: {source_video.name}")
+                    except Exception as ce:
+                        logger.warning(f"임시 파일 정리 실패: {ce}")
+
+                # 혹시 남은 임시 part 파일이나 cut 파일 정리
+                for temp_f in OUTPUTS_DIR.glob(f"*{job_id}*"):
+                    if output_video and temp_f == output_video:
+                        continue
+                    if temp_f.suffix in [".part", ".mkv", ".webm"] or temp_f.name.startswith("cut_"):
+                        try:
+                            temp_f.unlink()
+                        except Exception:
+                            pass
+
                 self.queue.task_done()
                 await asyncio.sleep(0.5)
 
