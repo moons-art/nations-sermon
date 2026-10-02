@@ -105,17 +105,17 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
         "raw_snippets": []
     }
 
-    # [1GB 프록시 과금 방지] 메타데이터와 자막 추출은 텍스트(HTML/JSON) 기반이므로 무조건 일반 네트워크(로컬/구글망)를 사용합니다.
-    proxy_url = None
-    proxies = None
+    # [자막 추출 프록시 연동]: Cloud Run(GCP IP 차단) 환경 대응을 위해 프록시 주소 설정 (순수 자막 텍스트는 수십 KB에 불과하여 프록시 한도에 영향 없음)
+    proxy_url = get_youtube_proxy()
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
     # 1순위: 초경량 youtube-transcript-api + oEmbed
     if video_id:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
             
-            # 1. 자막 추출 (1GB 프록시 절약을 위해 기본적으로 일반망 사용)
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=None)
+            # 1. 자막 추출 (GCP IP 차단 방지를 위해 프록시 적용)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
             try:
                 transcript = transcript_list.find_transcript(['ko', 'ko-KR', 'ko-kr'])
             except:

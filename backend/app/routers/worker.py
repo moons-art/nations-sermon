@@ -125,12 +125,16 @@ async def render_worker(req: Request):
                 source_video.unlink()
             except Exception:
                 pass
+        # OOM 누수 방지: Firebase 업로드 성공 여부와 상관없이 임시 폴더에 남은 출력 및 중간 파일 전량 삭제
+        if output_video and output_video.exists():
+            try:
+                output_video.unlink()
+            except Exception:
+                pass
         for temp_f in OUTPUTS_DIR.glob(f"*{job_id}*"):
-            if output_video and temp_f == output_video:
-                continue
             try:
                 temp_f.unlink()
-            except:
+            except Exception:
                 pass
 
     return {"status": "success", "job_id": job_id}
@@ -160,7 +164,8 @@ async def analyze_worker(req: Request):
         await _run_async_analysis(task_id, url, api_key, force_refresh)
     except Exception as e:
         logger.error(f"❌ [분석 실패] Task ID: {task_id}, 에러: {e}", exc_info=True)
-        if "네트워크" in str(e) or "타임아웃" in str(e):
-            raise HTTPException(status_code=500, detail="Temporary error, retry later")
+        err_msg = str(e).lower()
+        if any(keyword in err_msg for keyword in ["네트워크", "타임아웃", "timeout", "connection", "rate limit", "429", "503"]):
+            raise HTTPException(status_code=500, detail=f"Temporary retryable error: {e}")
             
     return {"status": "success", "task_id": task_id}

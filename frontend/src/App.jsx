@@ -119,17 +119,40 @@ export default function App() {
   const [cardTargetSubTab, setCardTargetSubTab] = useState('full_sermon');
   const [cardTargetDay, setCardTargetDay] = useState('1');
 
-  // ─── 전역 분석 상태 (다른 탭으로 이동해도 분석 계속) ───
-  const [analysisState, setAnalysisState] = useState({
-    isAnalyzing: false,
-    taskId: null,
-    progress: 0,
-    stage: '',
-    elapsed: 0,
-    error: null,
+  // ─── 전역 분석 상태 (새로고침/탭 이동 시에도 유지되도록 localStorage 연동) ───
+  const [analysisState, setAnalysisState] = useState(() => {
+    try {
+      const saved = localStorage.getItem('current_analysis_state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.isAnalyzing && parsed.taskId) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return {
+      isAnalyzing: false,
+      taskId: null,
+      progress: 0,
+      stage: '',
+      elapsed: 0,
+      error: null,
+    };
   });
+
   const analysisTimerRef = useRef(null);
   const pollIntervalRef = useRef(null);
+
+  // 분석 상태 변경 시 localStorage 동기화
+  useEffect(() => {
+    try {
+      if (analysisState.isAnalyzing && analysisState.taskId) {
+        localStorage.setItem('current_analysis_state', JSON.stringify(analysisState));
+      } else {
+        localStorage.removeItem('current_analysis_state');
+      }
+    } catch (e) {}
+  }, [analysisState.isAnalyzing, analysisState.taskId, analysisState.progress, analysisState.stage]);
 
   // 분석 경과 시간 타이머
   useEffect(() => {

@@ -146,6 +146,7 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             "stage": f"❌ 분석 실패: {str(e)[:200]}"
         })
         record_analysis_log(task_id, url, "FAILED", str(e))
+        raise e
 
 
 
