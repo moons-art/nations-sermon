@@ -107,24 +107,24 @@ def get_all_documents(collection: str) -> List[Dict[str, Any]]:
         except Exception as e:
             logger.warning(f"Firestore 컬렉션 조회 실패 ({collection}): {e}")
 
-    # 2. 디스크 파일 병합 (Firestore에 없는 최신 로컬 작업 포함)
+    # 2. 디스크 파일 병합 (Firestore보다 최신 로컬 작업 우선)
     prefix = f"{collection}_"
     if META_DIR.exists():
         for f in META_DIR.glob(f"{prefix}*.json"):
             doc_id = f.stem[len(prefix):]
-            if doc_id not in results:
-                try:
-                    data = json.loads(f.read_text(encoding="utf-8"))
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if doc_id not in results or (data.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):
                     results[doc_id] = data
                     _memory_store[f"{collection}_{doc_id}"] = data
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
-    # 3. 메모리 데이터 병합
+    # 3. 메모리 데이터 병합 (최신 작업 우선)
     for key, val in _memory_store.items():
         if key.startswith(prefix):
             doc_id = key[len(prefix):]
-            if doc_id not in results:
+            if doc_id not in results or (val.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):
                 results[doc_id] = val
 
     return list(results.values())

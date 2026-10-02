@@ -34,13 +34,17 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
       if (res && res.jobs) {
         setJobs(res.jobs);
 
-        // 아직 완료되지 않은 QUEUED 작업이 남아있을 경우 브라우저 커넥션으로 자동 실행 완수
+        // 아직 완료되지 않은 QUEUED 또는 멈춘 PROCESSING 작업이 있을 경우 브라우저 커넥션으로 자동 실행 완수
         if (!isExecutingRef.current) {
-          const queuedJob = res.jobs.find(j => j.status === 'QUEUED');
-          if (queuedJob) {
+          const pendingJob = res.jobs.find(
+            (j) =>
+              j.status === 'QUEUED' ||
+              (j.status === 'PROCESSING' && Date.now() - (j.updated_at * 1000 || 0) > 20000)
+          );
+          if (pendingJob) {
             isExecutingRef.current = true;
-            executeRenderJob(queuedJob.job_id)
-              .catch(e => console.warn('작업 실행 감지:', e))
+            executeRenderJob(pendingJob.job_id)
+              .catch((e) => console.warn('작업 실행 감지:', e))
               .finally(() => {
                 isExecutingRef.current = false;
                 loadJobs();

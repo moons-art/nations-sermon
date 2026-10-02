@@ -303,7 +303,9 @@ class SequentialRenderManager:
                     continue
 
                 job.progress = 55
+                job.stage = "FFmpeg 비디오 인코딩 및 자막 합성 중..."
                 job.updated_at = time.time()
+                self._save_job_meta(job)
 
                 # 2단계: FFmpeg 렌더링 (윈도우 스케일링 + 상단 2줄 헤더 + 상대 자막 번인 + 오디오 더킹)
                 output_video = OUTPUTS_DIR / f"shorts_{job.short_id}_{job_id}.mp4"
@@ -333,6 +335,7 @@ class SequentialRenderManager:
 
                 job.progress = 100
                 job.status = "COMPLETED"
+                job.stage = "렌더링 완료!"
                 job.file_path = str(output_video)
 
                 # Firebase Storage 업로드 시도 (스토리지 URL 우선 사용, 실패/로컬 시 기존 로컬 엔드포인트)
@@ -353,7 +356,9 @@ class SequentialRenderManager:
                 if job_id in self.jobs and self.jobs[job_id].status != "CANCELLED":
                     job.status = "FAILED"
                     job.error_message = str(e)
+                    job.stage = f"렌더링 실패: {e}"
                     job.updated_at = time.time()
+                    self._save_job_meta(job)
 
             finally:
                 # [메모리 OOM 방지] Cloud Run 환경 메모리 절약을 위해 임시 다운로드 소스 및 조각 파일 즉시 제거

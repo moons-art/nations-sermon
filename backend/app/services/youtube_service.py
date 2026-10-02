@@ -427,23 +427,30 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     # [2차 시도 (최후 폴백)]: 단일 포맷 best[height<=720] + FFmpeg Seek
     # ─────────────────────────────────────────────────────────────
     try:
+        try:
+            from yt_dlp.utils import download_range_func
+            range_opt = download_range_func(None, [(start_sec, end_sec)])
+        except Exception:
+            def range_opt(info_dict, ydl_instance=None):
+                return [{'start_time': start_sec, 'end_time': end_sec}]
+
         opts_fallback = {
             'format': format_720p_progressive,
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
-            'download_ranges': section_ranges,
+            'download_ranges': range_opt,
             'external_downloader': {'default': 'ffmpeg'},
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
-            'socket_timeout': 25,
-            'retries': 2,
+            'socket_timeout': 35,
+            'retries': 3,
         }
         apply_youtube_proxy(opts_fallback, sticky_session_id)
 
         with yt_dlp.YoutubeDL(opts_fallback) as ydl:
             ydl.download([normalized_url])
         
-        if target_file.exists():
+        if target_file.exists() and target_file.stat().st_size > 10000:
             file_size_mb = target_file.stat().st_size / (1024 * 1024)
             logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
             return target_file
