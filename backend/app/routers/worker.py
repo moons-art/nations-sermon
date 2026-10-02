@@ -8,7 +8,7 @@ from typing import Dict, Any
 
 from app.config import OUTPUTS_DIR
 from app.services.firestore_service import save_document, get_document
-from app.services.youtube_service import download_or_prepare_clip
+from app.services.youtube_service import download_or_prepare_clip, is_valid_video_file
 from app.services.ffmpeg_service import render_short_video
 from app.services.storage_service import upload_short_to_firebase
 
@@ -72,8 +72,11 @@ async def execute_render_job(job_id: str) -> Dict[str, Any]:
             job.get("end_time", "00:30"),
             source_video
         )
-        if not downloaded or not source_video.exists():
-            raise RuntimeError("유튜브 영상 클립 준비에 실패했습니다.")
+        if not downloaded or not source_video.exists() or not is_valid_video_file(source_video):
+            if source_video.exists():
+                try: source_video.unlink()
+                except: pass
+            raise RuntimeError("유튜브 영상 클립 준비에 실패했습니다 (비디오 손상 또는 moov atom 결함).")
 
         update_job({"progress": 55, "stage": "FFmpeg 하이라이트 렌더링 중..."})
 

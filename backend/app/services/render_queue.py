@@ -8,7 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 
 from app.config import OUTPUTS_DIR
-from app.services.youtube_service import download_or_prepare_clip
+from app.services.youtube_service import download_or_prepare_clip, is_valid_video_file
 from app.services.ffmpeg_service import render_short_video
 from app.services.storage_service import upload_short_to_firebase
 from app.services.firestore_service import save_document, get_all_documents
@@ -296,6 +296,12 @@ class SequentialRenderManager:
                     job.end_time,
                     source_video
                 )
+
+                if not source_video.exists() or not is_valid_video_file(source_video):
+                    if source_video.exists():
+                        try: source_video.unlink()
+                        except: pass
+                    raise RuntimeError("유튜브 영상 클립 준비에 실패했습니다 (비디오 손상 또는 moov atom 결함).")
 
                 if job.status == "CANCELLED" or job_id not in self.jobs:
                     if source_video and source_video.exists():

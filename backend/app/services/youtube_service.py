@@ -26,6 +26,28 @@ def extract_video_id(url: str) -> str:
             return match.group(1)
     return ""
 
+def is_valid_video_file(file_path: Path) -> bool:
+    """ffprobe를 통해 파일이 실제로 열리고 moov atom 및 재생 시간이 정상인지 검증"""
+    if not file_path or not file_path.exists():
+        return False
+    try:
+        if file_path.stat().st_size < 30000:
+            return False
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        if res.returncode != 0:
+            return False
+        dur_str = res.stdout.decode().strip()
+        dur = float(dur_str)
+        return dur > 0.5
+    except Exception:
+        return False
+
 def parse_time_to_seconds(time_str: str) -> int:
     """MM:SS 또는 HH:MM:SS 형식의 시간을 초 단위 정수로 변환"""
     parts = list(map(int, time_str.strip().split(":")))
@@ -353,8 +375,8 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     )
 
     # ─────────────────────────────────────────────────────────────
-    # [1차 시도]: yt-dlp 스트림 URL 추출 -> FFmpeg 직접 input seek (-ss / -t / -c copy)
-    # (DASH 청크 순차 다운로드를 완벽히 회피하고, HTTP Range 요청으로 즉시 45분 지점 점프)
+    # [1차 시도]: yt-dlp 스트림 URL 추출 -> FFmpeg ultrafast seek + faststart (moov atom 보장)
+    # (DASH 청크 순차 다운로드를 완벽히 회피하고, HTTP Range 요청으로 즉시 타임스탬프 지점 점프)
     # ─────────────────────────────────────────────────────────────
     try:
         opts_extract = {
@@ -375,56 +397,62 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
         if video_fmt and video_fmt.get('url'):
             cmd = [FFMPEG_PATH, "-y"]
-            
-            # 1. 환경변수를 통한 프록시 주입 (Sticky)
             env = os.environ.copy()
             if proxy_url:
                 env["http_proxy"] = proxy_url
                 env["https_proxy"] = proxy_url
-                # FFmpeg CLI 옵션으로도 프록시 주입
-                cmd.extend(["-http_proxy", proxy_url])
 
-            # 2. yt-dlp가 취득한 HTTP Headers를 완벽하게 복원 (CRLF 규격 준수)
             http_headers = info.get('http_headers', {})
-            if http_headers:
-                headers_arg = "".join(f"{k}: {v}\r\n" for k, v in http_headers.items())
+            headers_arg = "".join(f"{k}: {v}\r\n" for k, v in http_headers.items()) if http_headers else ""
+
+            # 비디오 입력 스트림 (-ss와 -t를 -i 앞에 배치하여 HTTP Range 즉시 점프)
+            cmd.extend(["-ss", str(start_sec), "-t", str(clip_duration)])
+            if proxy_url:
+                cmd.extend(["-http_proxy", proxy_url])
+            if headers_arg:
                 cmd.extend(["-headers", headers_arg])
+            cmd.extend(["-i", video_fmt['url']])
 
-            # 3. Input Options (-ss, -t) 배치 후 -i <URL>
-            cmd.extend([
-                "-ss", str(start_sec),
-                "-t", str(clip_duration),
-                "-i", video_fmt['url'],
-            ])
-
+            # 오디오 입력 스트림이 별도인 경우 분리 로드
             if audio_fmt and audio_fmt.get('url') and audio_fmt['url'] != video_fmt['url']:
+                cmd.extend(["-ss", str(start_sec), "-t", str(clip_duration)])
                 if proxy_url:
                     cmd.extend(["-http_proxy", proxy_url])
-                if http_headers:
+                if headers_arg:
                     cmd.extend(["-headers", headers_arg])
-                cmd.extend([
-                    "-ss", str(start_sec),
-                    "-t", str(clip_duration),
-                    "-i", audio_fmt['url'],
-                ])
-                cmd.extend(["-c:v", "copy", "-c:a", "copy", str(target_file)])
-            else:
-                cmd.extend(["-c", "copy", str(target_file)])
+                cmd.extend(["-i", audio_fmt['url']])
+
+            # [moov atom 결함 완전 방지]: -c copy 대신 ultrafast 트랜스코딩 + faststart
+            # 30초 클립은 ultrafast로 단 2~3초 만에 인코딩되며, moov atom이 파일 헤더에 100% 정상 기록됨
+            cmd.extend([
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "22",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(target_file)
+            ])
 
             logger.info(f"⚡ [1차 FFmpeg 직접 Seek 실행] 구간: {start_sec:.1f}s ~ {end_sec:.1f}s")
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40, env=env)
-            if res.returncode == 0 and target_file.exists() and target_file.stat().st_size > 10000:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45, env=env)
+            if res.returncode == 0 and is_valid_video_file(target_file):
                 file_size_mb = target_file.stat().st_size / (1024 * 1024)
-                logger.info(f"✅ [1차 FFmpeg 직접 Seek 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+                logger.info(f"✅ [1차 FFmpeg 직접 Seek 성공] 검증 완료: {target_file.name} ({file_size_mb:.2f} MB)")
                 return target_file
             else:
-                err_msg = res.stderr.decode("utf-8", errors="replace")
-                logger.warning(f"1차 FFmpeg Seek 실패 (Return: {res.returncode}):\n{err_msg}")
+                if target_file.exists():
+                    target_file.unlink()
+                err_msg = res.stderr.decode("utf-8", errors="replace") if res.stderr else "검증 실패"
+                logger.warning(f"1차 FFmpeg Seek 검증 실패 -> 2차 폴백 진행:\n{err_msg[-200:]}")
     except Exception as e2:
-        logger.warning(f"⚠️ 1차 Direct Stream Seek 예외 발생: {e2} -> 2차 단일 포맷 폴백 시도")
+        logger.warning(f"⚠️ 1차 Direct Stream Seek 예외 발생: {e2} -> 2차 폴백 시도")
+        if target_file.exists():
+            try: target_file.unlink()
+            except: pass
 
     # ─────────────────────────────────────────────────────────────
-    # [2차 시도 (최후 폴백)]: 단일 포맷 best[height<=720] + FFmpeg Seek
+    # [2차 시도]: yt-dlp download_ranges 구간 다운로드 + faststart
     # ─────────────────────────────────────────────────────────────
     try:
         try:
@@ -439,6 +467,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
             'download_ranges': range_opt,
+            'postprocessor_args': {'ffmpeg': ['-movflags', '+faststart']},
             'external_downloader': {'default': 'ffmpeg'},
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
@@ -450,13 +479,67 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
         with yt_dlp.YoutubeDL(opts_fallback) as ydl:
             ydl.download([normalized_url])
         
-        if target_file.exists() and target_file.stat().st_size > 10000:
+        # 파일 확인 및 비디오 검증
+        if not target_file.exists() or not is_valid_video_file(target_file):
+            for cand in target_file.parent.glob(f"{target_file.stem}*"):
+                if cand != target_file and cand.suffix in ['.mp4', '.mkv', '.webm']:
+                    if cand.stat().st_size > 50000:
+                        fix_cmd = [FFMPEG_PATH, "-y", "-i", str(cand), "-c", "copy", "-movflags", "+faststart", str(target_file)]
+                        subprocess.run(fix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+                        try: cand.unlink()
+                        except: pass
+                        break
+
+        if is_valid_video_file(target_file):
             file_size_mb = target_file.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+            logger.info(f"✅ [2차 폴백 다운로드 성공] 검증 완료: {target_file.name} ({file_size_mb:.2f} MB)")
             return target_file
+        else:
+            if target_file.exists():
+                try: target_file.unlink()
+                except: pass
 
     except Exception as e:
-        logger.error(f"❌ yt-dlp 클립 다운로드 완전 실패: {e}")
-        raise RuntimeError(f"유튜브 클립 추출 완전 실패 (프록시 네트워크 이슈 등): {e}")
+        logger.warning(f"⚠️ 2차 yt-dlp 폴백 실패: {e} -> 3차 단일 프로그레시브 시도")
+        if target_file.exists():
+            try: target_file.unlink()
+            except: pass
 
-    raise RuntimeError(f"유튜브 클립 다운로드 타임아웃 또는 알 수 없는 오류 발생")
+    # ─────────────────────────────────────────────────────────────
+    # [3차 시도 (최후의 보루)]: 단일 프로그레시브 스트림 직접 취득 후 30초 FFmpeg 컷
+    # ─────────────────────────────────────────────────────────────
+    try:
+        opts_p = {
+            'format': '18/22/best[ext=mp4][height<=720]/best',
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 25,
+        }
+        apply_youtube_proxy(opts_p, sticky_session_id)
+        with yt_dlp.YoutubeDL(opts_p) as ydl:
+            info_p = ydl.extract_info(normalized_url, download=False)
+        p_url = info_p.get('url')
+        if p_url:
+            p_cmd = [
+                FFMPEG_PATH, "-y",
+                "-ss", str(start_sec),
+                "-t", str(clip_duration),
+            ]
+            if proxy_url:
+                p_cmd.extend(["-http_proxy", proxy_url])
+            p_cmd.extend([
+                "-i", p_url,
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(target_file)
+            ])
+            subprocess.run(p_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+            if is_valid_video_file(target_file):
+                file_size_mb = target_file.stat().st_size / (1024 * 1024)
+                logger.info(f"✅ [3차 최후 프로그레시브 성공] {target_file.name} ({file_size_mb:.2f} MB)")
+                return target_file
+    except Exception as e3:
+        logger.error(f"❌ 3차 최후 폴백 실패: {e3}")
+
+    raise RuntimeError(f"유튜브 클립 추출 완전 실패 (3차 시도 모두 moov atom 결함 또는 네트워크 오류 발생)")
