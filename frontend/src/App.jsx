@@ -7,7 +7,7 @@ import ShortsListView from './components/shorts/ShortsListView';
 import CardNewsTab from './components/cardnews/CardNewsTab';
 import CardListView from './components/cardnews/CardListView';
 import AdminDashboard from './components/AdminDashboard';
-import { fetchRenderJobs } from './api/client';
+import { fetchRenderJobs, analyzeSermonUrl } from './api/client';
 import AuthModal from './components/AuthModal';
 import PricingPage from './components/PricingPage';
 import { useAuth } from './api/AuthContext';
@@ -119,102 +119,46 @@ export default function App() {
   const [cardTargetSubTab, setCardTargetSubTab] = useState('full_sermon');
   const [cardTargetDay, setCardTargetDay] = useState('1');
 
-  // ─── 전역 분석 상태 (새로고침/탭 이동 시에도 유지되도록 localStorage 연동) ───
-  const [analysisState, setAnalysisState] = useState(() => {
-    try {
-      const saved = localStorage.getItem('current_analysis_state');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.isAnalyzing && parsed.taskId) {
-          return parsed;
-        }
-      }
-    } catch (e) {}
-    return {
-      isAnalyzing: false,
-      taskId: null,
-      progress: 0,
-      stage: '',
-      elapsed: 0,
-      error: null,
-    };
+  // ─── 전역 분석 상태 ───
+  const [analysisState, setAnalysisState] = useState({
+    isAnalyzing: false,
+    progress: 0,
+    stage: '',
+    elapsed: 0,
+    error: null,
+    cachedNotice: null,
   });
 
   const analysisTimerRef = useRef(null);
-  const pollIntervalRef = useRef(null);
 
-  // 분석 상태 변경 시 localStorage 동기화
-  useEffect(() => {
-    try {
-      if (analysisState.isAnalyzing && analysisState.taskId) {
-        localStorage.setItem('current_analysis_state', JSON.stringify(analysisState));
-      } else {
-        localStorage.removeItem('current_analysis_state');
-      }
-    } catch (e) {}
-  }, [analysisState.isAnalyzing, analysisState.taskId, analysisState.progress, analysisState.stage]);
-
-  // 분석 경과 시간 타이머
+  // 분석 경과 시간 타이머 및 부드러운 진행률 표시
   useEffect(() => {
     if (analysisState.isAnalyzing) {
       analysisTimerRef.current = setInterval(() => {
-        setAnalysisState(prev => ({ ...prev, elapsed: prev.elapsed + 1 }));
+        setAnalysisState(prev => {
+          const newElapsed = prev.elapsed + 1;
+          let p = prev.progress;
+          if (newElapsed <= 10) p = Math.min(35, 10 + newElapsed * 2.5);
+          else if (newElapsed <= 30) p = Math.min(70, 35 + (newElapsed - 10) * 1.75);
+          else if (newElapsed <= 60) p = Math.min(92, 70 + (newElapsed - 30) * 0.7);
+          else p = Math.min(97, 92 + (newElapsed - 60) * 0.1);
+          
+          let stageMsg = prev.stage;
+          if (newElapsed > 12 && p < 65) {
+            stageMsg = '2단계: AI가 설교 본론 및 핵심 메시지 분석 중...';
+          } else if (p >= 65) {
+            stageMsg = '3단계: 5대 쇼츠 구간 및 카드뉴스 생성 중...';
+          }
+          return { ...prev, elapsed: newElapsed, progress: Math.floor(p), stage: stageMsg };
+        });
       }, 1000);
     } else {
-      clearInterval(analysisTimerRef.current);
+      if (analysisTimerRef.current) clearInterval(analysisTimerRef.current);
     }
-    return () => clearInterval(analysisTimerRef.current);
+    return () => {
+      if (analysisTimerRef.current) clearInterval(analysisTimerRef.current);
+    };
   }, [analysisState.isAnalyzing]);
-
-  // 분석 폴링 (백그라운드에서 계속 동작)
-  useEffect(() => {
-    if (analysisState.taskId && analysisState.isAnalyzing) {
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`${BASE_URL}/api/analyze/status/${analysisState.taskId}`);
-          if (!res.ok) return;
-          const json = await res.json();
-          const task = json.task;
-
-          setAnalysisState(prev => ({
-            ...prev,
-            progress: task.progress || prev.progress,
-            stage: task.stage || prev.stage,
-          }));
-
-          if (task.status === 'COMPLETED') {
-            clearInterval(pollIntervalRef.current);
-            setSermonData(task.data);
-            addSermonToHistory(task.data, task.youtube_url || youtubeUrl);
-            setCardNotice('done');
-            setAnalysisState({
-              isAnalyzing: false,
-              taskId: null,
-              progress: 100,
-              stage: '분석이 완료되어 설교분석 기록에 저장되었습니다.',
-              elapsed: 0,
-              error: null,
-            });
-            // 분석 완료 시 알림 표시 후 설교 분석 결과 탭으로 이동
-            setActiveTab('sermon_view');
-          } else if (task.status === 'FAILED') {
-            clearInterval(pollIntervalRef.current);
-            setAnalysisState({
-              isAnalyzing: false,
-              taskId: null,
-              progress: 0,
-              stage: '',
-              elapsed: 0,
-              error: task.error || '분석 실패',
-            });
-          }
-        } catch (e) {
-          console.error('폴링 오류:', e);
-        }
-      }, 2000);
-    }
-    return () => clearInterval(pollIntervalRef.current);
-  }, [analysisState.taskId, analysisState.isAnalyzing]);
 
   // 사이드바 상태 알림 점: 'processing' (주황점) | 'done' (파란점) | null
   const [shortsNotice, setShortsNotice] = useState('done');
@@ -223,15 +167,17 @@ export default function App() {
   // 렌더링 큐 상태 주기적 모니터링
   useEffect(() => {
     const checkJobs = async () => {
-      const res = await fetchRenderJobs();
-      if (res && res.jobs) {
-        const hasProcessing = res.jobs.some((j) => j.status === 'PROCESSING' || j.status === 'QUEUED');
-        if (hasProcessing) {
-          setShortsNotice('processing');
-        } else if (shortsNotice === 'processing') {
-          setShortsNotice('done');
+      try {
+        const res = await fetchRenderJobs();
+        if (res && res.jobs) {
+          const hasProcessing = res.jobs.some((j) => j.status === 'PROCESSING' || j.status === 'QUEUED');
+          if (hasProcessing) {
+            setShortsNotice('processing');
+          } else if (shortsNotice === 'processing') {
+            setShortsNotice('done');
+          }
         }
-      }
+      } catch (e) {}
     };
 
     const interval = setInterval(checkJobs, 3000);
@@ -240,72 +186,58 @@ export default function App() {
 
   // 분석 수동 중단 함수
   const cancelAnalysis = () => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     if (analysisTimerRef.current) clearInterval(analysisTimerRef.current);
     try {
       localStorage.removeItem('current_analysis_state');
     } catch (e) {}
     setAnalysisState({
       isAnalyzing: false,
-      taskId: null,
       progress: 0,
       stage: '',
       elapsed: 0,
       error: '사용자에 의해 분석이 중단되었습니다.',
+      cachedNotice: null,
     });
   };
 
-  // 유튜브 비동기 분석 시작 함수
+  // 유튜브 직통 동기 분석 시작 함수 (안정적인 직통 API 방식)
   const startAnalysis = async (ytUrl, geminiApiKey) => {
     setYoutubeUrl(ytUrl);
+    try {
+      localStorage.setItem('last_youtube_url', ytUrl);
+    } catch (e) {}
+
     setAnalysisState({
       isAnalyzing: true,
-      taskId: null,
-      progress: 5,
-      stage: '분석 작업을 시작하고 있습니다...',
+      progress: 10,
+      stage: '1단계: 유튜브 영상 정보 및 설교 자막 추출 중...',
       elapsed: 0,
       error: null,
+      cachedNotice: null,
     });
 
     try {
-      const res = await fetch(`${BASE_URL}/api/analyze/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ youtube_url: ytUrl, gemini_api_key: geminiApiKey || '' }),
-      });
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || '분석 시작 실패');
-      }
-      const json = await res.json();
-      if (json.is_cached) {
-        // 이미 분석된 캐시 영상인 경우: 튕기지 않고 안내 문구를 띄우고 결과로 부드럽게 전환
-        setAnalysisState({
-          isAnalyzing: false,
-          taskId: null,
-          progress: 100,
-          stage: '',
-          elapsed: 0,
-          error: null,
-          cachedNotice: json.message || "이미 분석이 완료된 영상입니다. 하단의 '최근 분석된 설교 보관함'을 확인해주세요.",
-        });
-        return;
-      }
-
-      setAnalysisState(prev => ({
-        ...prev,
-        taskId: json.task_id,
-        stage: '분석 작업이 시작되었습니다. 다른 탭을 이용하셔도 됩니다.',
+      const data = await analyzeSermonUrl(ytUrl, geminiApiKey || '');
+      setSermonData(data);
+      addSermonToHistory(data, ytUrl);
+      setCardNotice('done');
+      setAnalysisState({
+        isAnalyzing: false,
+        progress: 100,
+        stage: '분석이 완료되어 설교분석 기록에 저장되었습니다.',
+        elapsed: 0,
+        error: null,
         cachedNotice: null,
-      }));
+      });
+      // 분석 완료 시 결과 탭으로 즉시 전환
+      setActiveTab('sermon_view');
     } catch (err) {
       setAnalysisState({
         isAnalyzing: false,
-        taskId: null,
         progress: 0,
         stage: '',
         elapsed: 0,
-        error: err.message,
+        error: err.message || '설교 분석 중 오류가 발생했습니다.',
         cachedNotice: null,
       });
     }

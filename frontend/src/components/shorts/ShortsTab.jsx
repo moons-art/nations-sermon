@@ -25,7 +25,7 @@ import YoutubeIcon from '../YoutubeIcon';
 import InstagramIcon from '../InstagramIcon';
 import HighlightCard from './HighlightCard';
 import TitleEditModal from './TitleEditModal';
-import { queueRenderItems, fetchBgmList } from '../../api/client';
+import { queueRenderItems, fetchBgmList, executeRenderJob, BASE_URL } from '../../api/client';
 
 // ─── 쇼츠 생성 단계 상수 ───
 const STEP_SELECT = 'select';    // 하이라이트 선택 & 설정
@@ -83,7 +83,7 @@ export default function ShortsTab({
         audioPlayerRef.current = new Audio();
         audioPlayerRef.current.onended = () => setPreviewingBgm(null);
       }
-      audioPlayerRef.current.src = `http://127.0.0.1:8000/api/assets/bgm-audio/${bgmId}`;
+      audioPlayerRef.current.src = `${BASE_URL}/api/assets/bgm-audio/${bgmId}`;
       audioPlayerRef.current.volume = 0.8;
       audioPlayerRef.current.play().catch(e => console.warn('오디오 재생 실패:', e));
       setPreviewingBgm(bgmId);
@@ -164,6 +164,13 @@ export default function ShortsTab({
     else setIsSubmitting(true);
 
     try {
+      const effectiveYtUrl =
+        youtubeUrl ||
+        sermonData?.metadata?.youtube_url ||
+        sermonData?.youtube_url ||
+        localStorage.getItem('last_youtube_url') ||
+        '';
+
       const payload = itemsToRender.map(s => ({
         short_id: s.id,
         title: s.title,
@@ -177,12 +184,24 @@ export default function ShortsTab({
         template: template,
         platform: platform,
         church_name: churchName,
-        youtube_url: youtubeUrl,
+        youtube_url: effectiveYtUrl,
       }));
 
-      await queueRenderItems(payload);
+      const queueRes = await queueRenderItems(payload);
       if (onShortsQueued) onShortsQueued();
       setShowCreatedNotice(true);
+
+      // Cloud Run 환경에서 CPU Throttling으로 인한 멈춤을 방지하기 위해,
+      // 브라우저 커넥션을 유지하며 각 작업을 순차적으로 직접 렌더링 완수
+      if (queueRes?.jobs && queueRes.jobs.length > 0) {
+        for (const job of queueRes.jobs) {
+          try {
+            await executeRenderJob(job.job_id);
+          } catch (jobErr) {
+            console.warn(`[쇼츠 렌더링 완료 대기 중 알림] Job ${job.job_id}:`, jobErr);
+          }
+        }
+      }
     } catch (err) {
       console.error(err);
       alert(`렌더링 등록 실패: ${err.message || '서버 오류'}`);

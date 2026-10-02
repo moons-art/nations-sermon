@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Film, Download, Play, RefreshCw, Loader2, X, Trash2, AlertCircle, Edit3, Search, ArrowUpDown } from 'lucide-react';
-import { fetchRenderJobs, queueRenderItems } from '../../api/client';
+import { fetchRenderJobs, queueRenderItems, executeRenderJob } from '../../api/client';
 import SubtitleModal from './SubtitleModal';
 
-const BASE_URL = 'http://127.0.0.1:8000';
+const BASE_URL = import.meta.env.VITE_API_URL !== undefined 
+  ? import.meta.env.VITE_API_URL 
+  : (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
 export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
   const [jobs, setJobs] = useState([]);
@@ -13,6 +15,7 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
   const [editingJob, setEditingJob] = useState(null);
   const [isReRendering, setIsReRendering] = useState(false);
   const [downloadMenuId, setDownloadMenuId] = useState(null);
+  const isExecutingRef = useRef(false);
 
   // 검색 및 정렬 상태 ('latest': 최신순, 'name': 이름순)
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,10 +29,26 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
   }, []);
 
   const loadJobs = async () => {
-    const res = await fetchRenderJobs();
-    if (res && res.jobs) {
-      setJobs(res.jobs);
-    }
+    try {
+      const res = await fetchRenderJobs();
+      if (res && res.jobs) {
+        setJobs(res.jobs);
+
+        // 아직 완료되지 않은 QUEUED 작업이 남아있을 경우 브라우저 커넥션으로 자동 실행 완수
+        if (!isExecutingRef.current) {
+          const queuedJob = res.jobs.find(j => j.status === 'QUEUED');
+          if (queuedJob) {
+            isExecutingRef.current = true;
+            executeRenderJob(queuedJob.job_id)
+              .catch(e => console.warn('작업 실행 감지:', e))
+              .finally(() => {
+                isExecutingRef.current = false;
+                loadJobs();
+              });
+          }
+        }
+      }
+    } catch (e) {}
   };
 
   const handleDeleteJob = async (jobId) => {
@@ -95,8 +114,17 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
         youtube_url: effectiveYtUrl,
       }];
 
-      await queueRenderItems(payload);
-      alert('수정된 내용으로 재렌더링 큐에 등록되었습니다!');
+      const queueRes = await queueRenderItems(payload);
+      loadJobs();
+      if (queueRes?.jobs && queueRes.jobs.length > 0) {
+        for (const j of queueRes.jobs) {
+          try {
+            await executeRenderJob(j.job_id);
+          } catch (execErr) {
+            console.warn(`재렌더링 ${j.job_id} 실행 오류:`, execErr);
+          }
+        }
+      }
       loadJobs();
     } catch (err) {
       console.error(err);
@@ -313,7 +341,7 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
             const videoUrl = job.video_url
               ? job.video_url.startsWith('http')
                 ? job.video_url
-                : `http://127.0.0.1:8000${job.video_url}`
+                : `${BASE_URL}${job.video_url}`
               : null;
 
             return (

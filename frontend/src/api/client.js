@@ -1,10 +1,9 @@
-const BASE_URL = import.meta.env.VITE_API_URL !== undefined 
+export const BASE_URL = import.meta.env.VITE_API_URL !== undefined 
   ? import.meta.env.VITE_API_URL 
   : (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
 export async function analyzeSermonUrl(youtubeUrl, apiKey = '', forceRefresh = false) {
-  // 1. 비동기 큐 작업 시작
-  const response = await fetch(`${BASE_URL}/api/analyze/start`, {
+  const response = await fetch(`${BASE_URL}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ youtube_url: youtubeUrl, gemini_api_key: apiKey, force_refresh: forceRefresh }),
@@ -12,36 +11,11 @@ export async function analyzeSermonUrl(youtubeUrl, apiKey = '', forceRefresh = f
 
   if (!response.ok) {
     const errorJson = await response.json().catch(() => ({}));
-    throw new Error(errorJson.detail || `설교 분석 요청 실패 (${response.status})`);
+    throw new Error(errorJson.detail || `설교 분석 실패 (${response.status})`);
   }
-
-  const startJson = await response.json();
-  const taskId = startJson.task_id;
-  if (!taskId) throw new Error('분석 작업 ID를 발급받지 못했습니다.');
-
-  // 2. 상태 폴링 (최대 4분, 2초 간격)
-  const pollInterval = 2000;
-  const maxAttempts = 120;
-
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
-
-    const statusRes = await fetch(`${BASE_URL}/api/analyze/status/${taskId}`);
-    if (!statusRes.ok) continue;
-
-    const statusJson = await statusRes.json();
-    const task = statusJson.task;
-    if (!task) continue;
-
-    if (task.status === 'COMPLETED') {
-      if (!task.data) throw new Error('분석 결과 데이터가 올바르지 않습니다.');
-      return task.data;
-    } else if (task.status === 'FAILED') {
-      throw new Error(task.error || '설교 영상 분석에 실패했습니다.');
-    }
-  }
-
-  throw new Error('설교 분석 요청 시간이 초과되었습니다 (타임아웃).');
+  const json = await response.json();
+  if (!json.data) throw new Error('분석 결과 데이터가 올바르지 않습니다.');
+  return json.data;
 }
 
 export async function analyzeSermonText(title, sermonText, apiKey = '') {
@@ -121,6 +95,18 @@ export async function fetchRenderJobs() {
   const response = await fetch(`${BASE_URL}/api/render/jobs`);
   if (!response.ok) {
     throw new Error(`작업 목록 조회 실패 (${response.status})`);
+  }
+  return await response.json();
+}
+
+export async function executeRenderJob(jobId) {
+  const response = await fetch(`${BASE_URL}/api/render/execute/${jobId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    const errorJson = await response.json().catch(() => ({}));
+    throw new Error(errorJson.detail || `렌더링 실행 실패 (${response.status})`);
   }
   return await response.json();
 }

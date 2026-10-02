@@ -99,6 +99,25 @@ async def delete_job(job_id: str):
         "message": f"작업({job_id})이 취소되었습니다."
     }
 
+@router.post("/execute/{job_id}")
+async def execute_job_direct(job_id: str):
+    """
+    브라우저와 HTTP 연결을 유지하여 Cloud Run CPU Throttling을 방지하고
+    FFmpeg 쇼츠 렌더링을 끝까지 완수하는 동기식 보장 엔드포인트
+    """
+    job = get_document("render_jobs", job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다.")
+
+    # 이미 완료된 작업이면 즉시 반환
+    if job.get("status") == "COMPLETED" and job.get("video_url"):
+        return {"status": "success", "job_id": job_id, "video_url": job.get("video_url")}
+
+    result = await execute_render_job(job_id)
+    if result.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=result.get("error", "렌더링에 실패했습니다."))
+    return result
+
 @router.get("/download-compressed/{job_id}")
 async def download_compressed(job_id: str):
     """모바일/인스타/카톡 공유에 최적화된 저용량(3~4MB) 압축 다운로드"""

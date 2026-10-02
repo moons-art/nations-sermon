@@ -271,6 +271,11 @@ async def analyze_url(req: AnalyzeRequest) -> Dict[str, Any]:
             meta["title"] = details["title"]
         if details.get("channel") and not meta.get("churchName"):
             meta["churchName"] = details["channel"]
+        if details.get("duration_str") and not meta.get("duration"):
+            meta["duration"] = details["duration_str"]
+        if details.get("video_id") and not meta.get("video_id"):
+            meta["video_id"] = details["video_id"]
+        meta["youtube_url"] = url
 
         save_cached_analysis(url, analysis)
         record_analysis_log("sync", url, "COMPLETED")

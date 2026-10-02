@@ -43,6 +43,23 @@ async def execute_render_job(job_id: str) -> Dict[str, Any]:
 
         effective_yt_url = job.get("youtube_url")
         if not effective_yt_url or ("youtube" not in effective_yt_url and "youtu.be" not in effective_yt_url):
+            # 1순위: 캐시 파일에서 가장 최근 분석된 유튜브 URL 자동 복원
+            cache_dir = OUTPUTS_DIR / "cache"
+            if cache_dir.exists():
+                for c_file in sorted(cache_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True):
+                    try:
+                        import json
+                        c_data = json.loads(c_file.read_text(encoding="utf-8"))
+                        candidate_url = c_data.get("metadata", {}).get("youtube_url") or c_data.get("youtube_url")
+                        if candidate_url and ("youtube" in candidate_url or "youtu.be" in candidate_url):
+                            effective_yt_url = candidate_url
+                            update_job({"youtube_url": candidate_url})
+                            logger.info(f"⚡ [URL 자동 복원] 캐시 파일에서 유튜브 URL 복구: {candidate_url}")
+                            break
+                    except Exception:
+                        pass
+
+        if not effective_yt_url or ("youtube" not in effective_yt_url and "youtu.be" not in effective_yt_url):
             raise RuntimeError("쇼츠 렌더링에 필요한 유튜브 원본 URL이 누락되었습니다. 작업을 다시 요청해주세요.")
         
         loop = asyncio.get_event_loop()
