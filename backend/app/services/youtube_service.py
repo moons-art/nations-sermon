@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 import logging
+import urllib.request
+import json as pyjson
 from pathlib import Path
 from typing import Dict, Any, Optional
 from app.config import FFMPEG_PATH, TEST_VIDEO_DIR
@@ -44,7 +46,6 @@ def get_youtube_proxy(sticky_session_id: Optional[str] = None) -> Optional[str]:
         
     if sticky_session_id and "td-customer" in proxy:
         # http://username:password@host:port 형식에서 username 부분에 session 추가
-        # 예: td-customer-XXX -> td-customer-XXX-session-YYYY-sesstime-10
         try:
             import urllib.parse
             parsed = urllib.parse.urlparse(proxy)
@@ -87,8 +88,8 @@ apply_proxy_and_cookies = lambda opts, *args, **kwargs: apply_youtube_proxy(opts
 def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
     """
     [1단계: 분석 및 카드뉴스 생성을 위한 자막 및 메타데이터 추출]
-    - 전체 비디오/오디오 다운로드 없이(skip_download=True) 오직 '자막'과 메타데이터만 추출.
-    - 프록시 트래픽(1GB)을 극대화 절약하여 수 KB 수준의 텍스트 데이터만 통신.
+    - 1순위: 초경량 youtube-transcript-api + oEmbed API (트래픽 거의 0, 속도 0.1~1초 최적화)
+    - 2순위: yt-dlp 폴백 (기존 방식)
     """
     video_id = extract_video_id(url)
     default_thumb = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
@@ -104,15 +105,88 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
         "raw_snippets": []
     }
 
+    proxy_url = get_youtube_proxy()
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+
+    # 1순위: 초경량 youtube-transcript-api + oEmbed
+    if video_id:
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
+            
+            # 1. 자막 추출 (프록시 적용)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
+            try:
+                transcript = transcript_list.find_transcript(['ko', 'ko-KR', 'ko-kr'])
+            except:
+                try:
+                    transcript = transcript_list.find_generated_transcript(['ko'])
+                except:
+                    # 한국어가 없으면 그냥 아무거나 첫번째 자막을 시도
+                    transcript = list(transcript_list._manually_created_transcripts.values())[0] if transcript_list._manually_created_transcripts else list(transcript_list._generated_transcripts.values())[0]
+
+            snippets = transcript.fetch()
+            
+            if snippets:
+                lines = []
+                raw_snippets = []
+                for s in snippets:
+                    mins = int(s['start'] // 60)
+                    secs = int(s['start'] % 60)
+                    t_str = f"{mins:02d}:{secs:02d}"
+                    text = s['text'].strip()
+                    if text and text != '\n':
+                        lines.append(f"[{t_str}] {text}")
+                        raw_snippets.append({
+                            "start": s['start'],
+                            "duration": s['duration'],
+                            "text": text,
+                            "time_str": t_str
+                        })
+                
+                details["transcript_text"] = "\n".join(lines)
+                details["raw_snippets"] = raw_snippets
+                logger.info(f"✅ [1순위 자막 추출 성공] youtube-transcript-api (총 {len(lines)}행)")
+
+                # 2. 총 길이(Duration) 추정 (마지막 자막 시간 + 길이)
+                if raw_snippets:
+                    last_s = raw_snippets[-1]
+                    dur = int(last_s['start'] + last_s['duration'])
+                    details["duration"] = dur
+                    details["duration_str"] = f"{int(dur//60):02d}:{int(dur%60):02d}"
+
+                # 3. oEmbed로 메타데이터(제목/채널명) 가져오기
+                oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+                try:
+                    req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    if proxy_url:
+                        proxy_handler = urllib.request.ProxyHandler({'http': proxy_url, 'https': proxy_url})
+                        opener = urllib.request.build_opener(proxy_handler)
+                        resp = opener.open(req, timeout=5).read().decode('utf-8')
+                    else:
+                        resp = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
+                        
+                    o_data = pyjson.loads(resp)
+                    details["title"] = o_data.get("title", "")
+                    details["channel"] = o_data.get("author_name", "")
+                    if o_data.get("thumbnail_url"):
+                        details["thumbnail"] = o_data.get("thumbnail_url")
+                    logger.info("✅ [1순위 메타데이터 추출 성공] oEmbed API")
+                    
+                    # 1순위 성공 시 yt-dlp를 생략하고 바로 반환!
+                    return details
+                except Exception as oe:
+                    logger.warning(f"oEmbed 메타데이터 추출 실패 (yt-dlp로 폴백): {oe}")
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ 1순위 youtube-transcript-api 자막 추출 실패: {e} -> 2순위 yt-dlp 폴백 시도")
+
     ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
     if ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
-    # 1순위: yt-dlp로 자막 목록 및 메타데이터 조회
+    # 2순위: yt-dlp로 자막 목록 및 메타데이터 조회 (Fallback)
     try:
         import yt_dlp
-        import urllib.request
-        import json as pyjson
 
         ydl_opts = {
             'quiet': True,
@@ -123,22 +197,31 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             'subtitleslangs': ['ko', 'ko-KR', 'ko-kr', 'en'],
             'remote_components': ['ejs:github'],
             'ffmpeg_location': ffmpeg_dir,
+            'extract_flat': False, # 메타데이터 전체 추출 필요
         }
         apply_youtube_proxy(ydl_opts)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            details["title"] = info.get("title", "")
-            details["channel"] = info.get("uploader") or info.get("channel", "")
-            details["description"] = info.get("description", "")
-            if info.get("thumbnail"):
+            if not details["title"]:
+                details["title"] = info.get("title", "")
+            if not details["channel"]:
+                details["channel"] = info.get("uploader") or info.get("channel", "")
+            if not details["description"]:
+                details["description"] = info.get("description", "")
+            if info.get("thumbnail") and not details.get("thumbnail") or details["thumbnail"] == default_thumb:
                 details["thumbnail"] = info.get("thumbnail")
+            
             dur = info.get("duration", 0)
-            details["duration"] = dur
-            if dur:
+            if dur and details["duration"] == 0:
+                details["duration"] = dur
                 mins = int(dur // 60)
                 secs = int(dur % 60)
                 details["duration_str"] = f"{mins:02d}:{secs:02d}"
+
+            # 이미 자막을 구했다면 리턴
+            if details["transcript_text"]:
+                return details
 
             # 한국어 자막(공식 또는 자동생성) json3 포맷 탐색
             sub_candidates = []
@@ -153,7 +236,6 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                 target_url = sub_candidates[0].get('url')
 
             if target_url:
-                proxy_url = get_youtube_proxy()
                 req = urllib.request.Request(target_url, headers={
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8'
@@ -189,144 +271,71 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
                     if lines:
                         details["transcript_text"] = "\n".join(lines)
                         details["raw_snippets"] = raw_snippets
-                        logger.info(f"✅ [자막 추출 성공 (yt-dlp)] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
+                        logger.info(f"✅ [2순위 자막 추출 성공 (yt-dlp)] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
     except Exception as e:
         logger.warning(f"yt-dlp 자막/메타데이터 추출 실패: {e}")
 
-    # 2순위: youtube-transcript-api 폴백 (프록시 핀셋 연동)
-    if not details.get("transcript_text") and video_id:
-        try:
-            from youtube_transcript_api import YouTubeTranscriptApi
-            proxy_url = get_youtube_proxy()
-            api = None
-            if proxy_url:
-                try:
-                    from youtube_transcript_api.proxies import GenericProxyConfig
-                    proxy_config = GenericProxyConfig(http_url=proxy_url, https_url=proxy_url)
-                    api = YouTubeTranscriptApi(proxy_config=proxy_config)
-                    logger.info("🌐 [youtube-transcript-api] 프록시 핀셋 적용 완료")
-                except Exception as pe:
-                    logger.warning(f"⚠️ youtube-transcript-api 프록시 설정 실패 ({pe}), 직접 연결 시도")
-                    api = YouTubeTranscriptApi()
-            else:
-                api = YouTubeTranscriptApi()
-
-            snippets = None
-            try:
-                snippets = api.fetch(video_id, languages=['ko', 'ko-KR', 'ko-kr'])
-            except Exception:
-                try:
-                    for t in api.list(video_id):
-                        snippets = t.fetch()
-                        break
-                except Exception:
-                    pass
-
-            if snippets:
-                lines = []
-                raw_snippets = []
-                for s in snippets:
-                    mins = int(s.start // 60)
-                    secs = int(s.start % 60)
-                    t_str = f"{mins:02d}:{secs:02d}"
-                    lines.append(f"[{t_str}] {s.text}")
-                    raw_snippets.append({
-                        "start": s.start,
-                        "duration": getattr(s, 'duration', 0.0),
-                        "text": s.text.strip(),
-                        "time_str": t_str
-                    })
-                details["transcript_text"] = "\n".join(lines)
-                details["raw_snippets"] = raw_snippets
-                logger.info(f"✅ [자막 추출 성공 (API 폴백)] 총 {len(lines)}행 / {len(details['transcript_text'])}자")
-        except Exception as e:
-            logger.warning(f"youtube-transcript-api 2순위 자막 추출 실패: {e}")
-
-    if video_id and not details.get("thumbnail"):
-        details["thumbnail"] = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
-
     return details
 
-def generate_local_test_video(output_path: Path, duration_seconds: int = 15) -> Path:
-    """영상 없는 설교문(아이디어 메모/초안) 숏폼 생성을 위한 배경 비디오 생성"""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_path.exists() and output_path.stat().st_size > 1000:
-        return output_path
-
-    cmd = [
-        FFMPEG_PATH, "-y",
-        "-f", "lavfi",
-        "-i", f"color=c=#14171E:s=1920x1080:d={duration_seconds}",
-        "-f", "lavfi",
-        "-i", f"anullsrc=r=44100:cl=stereo",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-t", str(duration_seconds),
-        "-c:a", "aac", "-b:a", "128k",
-        str(output_path)
-    ]
-    try:
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    except Exception as e:
-        logger.error(f"배경 비디오 생성 실패: {e}")
-
-    return output_path
-
-def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_file: Path) -> Path:
+def download_or_prepare_clip(url: str, start_time: str, end_time: str, job_id: str) -> Optional[Path]:
     """
-    [2단계: 5개 하이라이트 쇼츠 구간만 부분 다운로드]
-    - 전체 1시간짜리 영상을 통째로 다운로드하지 않고, 지정된 하이라이트 구간만 download_ranges로 추출.
-    - 화질을 쇼츠용 최적 720p mp4(최대 1080p)로 엄격히 제한하여 프록시 트래픽(1GB) 소모 극소화.
-    - yt-dlp의 'proxy' 옵션을 통해 내부 FFmpeg/HTTP 스트림 통신에 프록시 자동 유지.
+    지정된 URL 영상에서 특정 구간(start~end)만 크롭하여 mp4로 반환합니다.
+    (Youtube 봇 차단 우회를 위한 특수 헤더 및 Sticky Session 연동)
     """
-    target_file.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"🎥 영상 클립 추출 시작: {url} [{start_time} ~ {end_time}]")
+    start_sec = parse_time_to_seconds(start_time)
+    end_sec = parse_time_to_seconds(end_time)
+    clip_duration = end_sec - start_sec
 
-    video_id = extract_video_id(url)
-    if not video_id:
-        raise RuntimeError(f"유효하지 않은 유튜브 URL입니다: {url}")
-    normalized_url = f"https://www.youtube.com/watch?v={video_id}"
+    if clip_duration <= 0:
+        logger.error("유효하지 않은 클립 구간입니다.")
+        return None
 
-    raw_start = parse_time_to_seconds(start_time)
-    raw_end = parse_time_to_seconds(end_time)
+    target_file = OUTPUTS_DIR / f"{job_id}_clip.mp4"
+    if target_file.exists() and target_file.stat().st_size > 10000:
+        logger.info(f"클립 파일이 이미 존재합니다: {target_file}")
+        return target_file
 
-    # 앞뒤 1.5초 여유 마진 (호흡 및 키프레임 보정)
-    start_sec = max(0.0, float(raw_start) - 1.5)
-    end_sec = float(raw_end) + 1.5
-    clip_duration = max(3.0, end_sec - start_sec)
+    import yt_dlp
+
+    # 플레이리스트 방지 및 URL 정규화
+    normalized_url = url.split('&list=')[0].split('?list=')[0]
+    section_ranges = f"*{start_sec}-{end_sec}"
 
     ffmpeg_dir = str(Path(FFMPEG_PATH).parent)
     if ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
-    logger.info(
-        f"🚀 [초고속 하이라이트 구간 다운로드] "
-        f"URL: {normalized_url} | 구간: {start_time} ~ {end_time} "
-        f"({start_sec:.1f}초 ~ {end_sec:.1f}초, 총 {clip_duration:.1f}초) | FFmpeg Fast-Seek (-c copy) 적용"
-    )
-
-    import yt_dlp
-
-    def section_ranges(info_dict, ydl):
-        return [{'start_time': start_sec, 'end_time': end_sec}]
-
-    def find_downloaded_file(base_path: Path) -> Optional[Path]:
-        if base_path.exists() and base_path.stat().st_size > 10000:
-            return base_path
-        parent = base_path.parent
-        stem = base_path.stem
-        candidates = list(parent.glob(f"{stem}*"))
-        for cand in candidates:
-            if cand.is_file() and not cand.name.endswith(".part") and cand.stat().st_size > 10000:
-                if cand.suffix.lower() == ".mp4":
-                    return cand
-                else:
-                    cmd = [FFMPEG_PATH, "-y", "-i", str(cand), "-c", "copy", str(base_path)]
-                    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    if base_path.exists() and base_path.stat().st_size > 10000:
-                        try:
-                            cand.unlink()
-                        except Exception:
-                            pass
-                        return base_path
-        return None
+    # 캐시된 URL 재사용 (빠른 다운로드)
+    cache_dir = OUTPUTS_DIR / "cache"
+    if cache_dir.exists():
+        for c_file in cache_dir.glob("*.json"):
+            try:
+                import json
+                c_d = json.loads(c_file.read_text(encoding="utf-8"))
+                meta = c_d.get("metadata", {})
+                if meta.get("youtube_url") == normalized_url or \
+                   meta.get("youtube_url") == url or \
+                   extract_video_id(meta.get("youtube_url", "")) == extract_video_id(normalized_url):
+                    
+                    if "cached_video_path" in meta and meta["cached_video_path"]:
+                        base_path = Path(meta["cached_video_path"])
+                        if base_path.exists():
+                            logger.info(f"캐시된 원본 영상 발견, 크롭만 진행: {base_path.name}")
+                            cmd = [
+                                FFMPEG_PATH, "-y",
+                                "-ss", str(start_sec),
+                                "-i", str(base_path),
+                                "-t", str(clip_duration),
+                                "-c:v", "copy", "-c:a", "copy",
+                                str(target_file)
+                            ]
+                            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            if res.returncode == 0 and target_file.exists():
+                                return target_file
+                    break
+            except Exception:
+                continue
 
     import uuid
     sticky_session_id = uuid.uuid4().hex[:8]
@@ -430,19 +439,13 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
         with yt_dlp.YoutubeDL(opts_fallback) as ydl:
             ydl.download([normalized_url])
+        
+        if target_file.exists():
+            file_size_mb = target_file.stat().st_size / (1024 * 1024)
+            logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
+            return target_file
 
-        found = find_downloaded_file(target_file)
-        if found:
-            file_size_mb = found.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ [2차 폴백 다운로드 성공] 파일: {found.name} ({file_size_mb:.2f} MB)")
-            return found
-    except Exception as e3:
-        logger.error(f"❌ 2차 폴백 다운로드 실패: {e3}")
+    except Exception as e:
+        logger.error(f"❌ yt-dlp 클립 다운로드 완전 실패: {e}")
 
-    found = find_downloaded_file(target_file)
-    if found:
-        return found
-
-    raise RuntimeError(
-        f"유튜브 쇼츠 구간 영상 다운로드에 실패했습니다. (구간: {start_time} ~ {end_time})"
-    )
+    return None
