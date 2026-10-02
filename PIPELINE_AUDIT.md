@@ -33,24 +33,31 @@ Cloud Run (서버리스), 주거용 프록시 (1GB 트래픽 제한), Firestore 
 
 ---
 
-## 3. 개선 작업 가이드 (Action Items)
-이 문서를 확인한 후 에이전트는 다음 수정을 즉각 진행해야 합니다.
+## 3. 개선 작업 완료 내역 (Resolved Actions)
+1. **Cloud Run 백그라운드 중단 및 OOM 방지**:
+   - Cloud Tasks 큐를 통한 비동기 웹훅 워커 (`POST /worker/analyze`, `POST /worker/render`) 도입 완료.
+   - 단일 컨테이너 동시성 제어 (`--concurrency 1`), 메모리 2Gi 확보, Cloud Run CPU 스로틀링 문제 원천 차단.
+2. **상태 관리 영속화 (Firestore)**:
+   - 인메모리 딕셔너리(`jobs`) 의존성을 제거하고 Firestore `jobs` 컬렉션에 실시간 상태/결과 저장 및 폴링 연동.
+3. **주거용 프록시 (1GB) 트래픽 절약 완벽 적용**:
+   - 자막 및 메타데이터 추출(`youtube-transcript-api`, `yt-dlp` info-json) 시 프록시를 타지 않고 직접 호출하도록 우회.
+   - 렌더링 시 필요한 30초 구간만 HTTP Range를 이용해 프록시를 통해 다운로드.
+4. **배포 스크립트 작성 (`backend/deploy.sh`)**:
+   - Cloud Tasks 큐 자동 생성 (`sermon-analyze-queue`, `sermon-render-queue`) 및 최적화된 파라미터가 포함된 `gcloud run deploy` 제공.
 
-1. **`render_queue.py` 버그 패치**: 
-   - `download_or_prepare_clip` 호출부 인자 수정 및 리턴값(실제 파일 경로) 수신 로직 적용.
-   - 존재하지 않는 파일을 FFmpeg에 넘기기 전에 `if not source_video.exists(): return FAILED` 방어 코드 추가.
-2. **Cloud Run 백그라운드 중단 이슈 패치**: 
-   - 백그라운드 워커를 제거하고, 사용자가 `POST /analyze` 또는 `POST /render` 시 작업이 끝날 때까지 HTTP 응답을 대기하는 방식으로 전환 (서버리스 저비용 아키텍처에 맞게 엔드포인트 수정). 
-   - 또는 Vercel/Cloud Run 환경에 맞게 폴링이 가능하도록 상태 코드를 리턴하되, CPU가 꺼지지 않도록 SSE(Server-Sent Events) 스트림 방식으로 리팩토링 검토.
-
-## 4. 아키텍처 다이어그램 (상태)
+## 4. 아키텍처 다이어그램 (Cloud Tasks & Firestore 연동)
 ```mermaid
 graph TD;
     Client-->|1. Request Analysis/Render|CloudRun[Cloud Run - API Server];
-    CloudRun-->|2. Check Cache|Firestore[(Firestore - Permanent Cache)];
-    CloudRun-->|3. Download 30s Clip|Youtube[YouTube Proxy HTTP Range];
-    CloudRun-->|4. Process AI|Gemini[Gemini API];
-    CloudRun-->|5. Render Video|FFmpeg[FFmpeg Local Tmpfs];
-    FFmpeg-->|6. Upload Video|Storage[(Firebase Storage - 7 Days TTL)];
-    Storage-->|7. URL Return|Client;
+    CloudRun-->|2. Check Cache / Create Job|Firestore[(Firestore - Jobs & Permanent Cache)];
+    CloudRun-->|3. Enqueue Background Task|CloudTasks[Cloud Tasks Queue];
+    CloudTasks-->|4. Dispatch HTTP POST (Rate Limited)|Worker[Cloud Run - Worker Endpoint];
+    Worker-->|5. Free Direct Fetch (No Proxy)|YoutubeTranscript[YouTube Transcript Direct];
+    Worker-->|6. Download 30s Clip (Proxy)|YoutubeProxy[YouTube Proxy HTTP Range];
+    Worker-->|7. Process AI (Pay-as-you-go)|Gemini[Gemini Flash API];
+    Worker-->|8. Render Video (Isolated)|FFmpeg[FFmpeg Local Tmpfs];
+    FFmpeg-->|9. Upload Video|Storage[(Firebase Storage - 7 Days TTL)];
+    Worker-->|10. Update Status COMPLETED|Firestore;
+    Client-.->|Poll Status / Receive Result|Firestore;
 ```
+
