@@ -238,6 +238,23 @@ export default function App() {
     return () => clearInterval(interval);
   }, [shortsNotice]);
 
+  // 분석 수동 중단 함수
+  const cancelAnalysis = () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (analysisTimerRef.current) clearInterval(analysisTimerRef.current);
+    try {
+      localStorage.removeItem('current_analysis_state');
+    } catch (e) {}
+    setAnalysisState({
+      isAnalyzing: false,
+      taskId: null,
+      progress: 0,
+      stage: '',
+      elapsed: 0,
+      error: '사용자에 의해 분석이 중단되었습니다.',
+    });
+  };
+
   // 유튜브 비동기 분석 시작 함수
   const startAnalysis = async (ytUrl, geminiApiKey) => {
     setYoutubeUrl(ytUrl);
@@ -399,6 +416,7 @@ export default function App() {
               apiKey={apiKey}
               analysisState={analysisState}
               onStartAnalysis={startAnalysis}
+              onCancelAnalysis={cancelAnalysis}
               sermonHistory={sermonHistory}
               onSelectHistory={handleSelectHistory}
               onDeleteHistory={handleDeleteHistory}

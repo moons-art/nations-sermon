@@ -31,6 +31,7 @@ export default function UploadTab({
   apiKey,
   analysisState,
   onStartAnalysis,
+  onCancelAnalysis,
   sermonHistory = [],
   onSelectHistory,
   onDeleteHistory,
@@ -304,10 +305,22 @@ export default function UploadTab({
                     <Loader2 className="w-4 h-4 animate-spin text-amber-600 flex-shrink-0" />
                     <span>목사님의 설교영상을 정밀 분석하고 있습니다</span>
                   </div>
-                  <span className="font-mono text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full text-[11px] flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {ytElapsed}초 경과 / 약 30초~60초 소요
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full text-[11px] flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {ytElapsed}초 경과
+                    </span>
+                    {onCancelAnalysis && (
+                      <button
+                        type="button"
+                        onClick={onCancelAnalysis}
+                        className="px-2 py-0.5 rounded-md bg-amber-200 hover:bg-amber-300 text-amber-900 text-[11px] font-bold transition-colors cursor-pointer"
+                        title="분석 중단"
+                      >
+                        중단
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* 프로그레스 바 */}
@@ -316,16 +329,20 @@ export default function UploadTab({
                     className="bg-amber-600 h-1.5 rounded-full transition-all duration-300"
                     style={{
                       width: `${
-                        ytElapsed <= 40
-                          ? Math.min(88, Math.max(8, (ytElapsed / 40) * 88))
-                          : Math.min(96, 88 + ((ytElapsed - 40) / 20) * 8)
+                        analysisState?.progress
+                          ? analysisState.progress
+                          : (ytElapsed <= 40
+                            ? Math.min(88, Math.max(8, (ytElapsed / 40) * 88))
+                            : Math.min(96, 88 + ((ytElapsed - 40) / 20) * 8))
                       }%`,
                     }}
                   />
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] text-amber-900">
-                  <span className="font-medium animate-pulse">분석중..</span>
+                  <span className="font-medium animate-pulse">
+                    {analysisState?.stage || '1단계: 설교 자막 추출 및 AI 분석 진행 중...'}
+                  </span>
                 </div>
               </div>
             )}
@@ -386,14 +403,16 @@ export default function UploadTab({
             </div>
           )}
 
-          {/* 분석 실패 오류 메시지: 복잡한 원본 에러를 모두 비우고 '다시 시도해 주세요'만 깔끔하게 노출 */}
+          {/* 분석 실패 오류 메시지 */}
           {analysisState?.error && !isYtAnalyzing && (
             <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-xl animate-fadeIn">
               <div className="flex items-start gap-2.5">
                 <span className="text-red-500 text-base flex-shrink-0 mt-0.5">❌</span>
-                <div>
-                  <p className="text-xs font-bold text-red-700 mb-1">분석에 실패했습니다</p>
-                  <p className="text-xs text-red-600 font-medium">다시 시도해 주세요</p>
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-red-700">분석에 실패했습니다</p>
+                  <p className="text-xs text-red-600 font-medium whitespace-pre-line leading-relaxed">
+                    {analysisState.error}
+                  </p>
                 </div>
               </div>
             </div>

@@ -19,9 +19,9 @@ export async function analyzeSermonUrl(youtubeUrl, apiKey = '', forceRefresh = f
   const taskId = startJson.task_id;
   if (!taskId) throw new Error('분석 작업 ID를 발급받지 못했습니다.');
 
-  // 2. 상태 폴링 (최대 10분, 2초 간격)
+  // 2. 상태 폴링 (최대 4분, 2초 간격)
   const pollInterval = 2000;
-  const maxAttempts = 300;
+  const maxAttempts = 120;
 
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval));

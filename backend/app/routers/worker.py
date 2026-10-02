@@ -151,9 +151,9 @@ async def analyze_worker(req: Request):
     try:
         await _run_async_analysis(task_id, url, api_key, force_refresh)
     except Exception as e:
-        logger.error(f"❌ [분석 실패] Task ID: {task_id}, 에러: {e}", exc_info=True)
-        err_msg = str(e).lower()
-        if any(keyword in err_msg for keyword in ["네트워크", "타임아웃", "timeout", "connection", "rate limit", "429", "503"]):
-            raise HTTPException(status_code=500, detail=f"Temporary retryable error: {e}")
+        logger.error(f"❌ [분석 실패 - 재시도 방지] Task ID: {task_id}, 에러: {e}", exc_info=True)
+        # Firestore에 이미 FAILED 상태와 에러 메시지가 기록되었으므로,
+        # Cloud Tasks 무한 재시도로 인한 자원 낭비 및 사용자 5분 이상 멈춤을 방지하기 위해 정상 응답 반환
+        return {"status": "failed", "task_id": task_id, "error": str(e)}
             
     return {"status": "success", "task_id": task_id}

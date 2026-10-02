@@ -199,9 +199,11 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             'remote_components': ['ejs:github'],
             'ffmpeg_location': ffmpeg_dir,
             'extract_flat': False, # 메타데이터 전체 추출 필요
+            'socket_timeout': 10,  # 10초 타임아웃으로 무한 대기 방지
+            'retries': 2,
         }
-        # [과금 방지] 프록시 적용 제외
-        # apply_youtube_proxy(ydl_opts)
+        # Cloud Run(GCP IP 차단) 환경 대응을 위해 프록시 주입 (자막/메타데이터는 수십 KB 텍스트로 프록시 용량 소진 없음)
+        apply_youtube_proxy(ydl_opts)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)

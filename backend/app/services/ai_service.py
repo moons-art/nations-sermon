@@ -103,20 +103,21 @@ async def analyze_sermon_video(
     video_id = extract_video_id(youtube_url)
     normalized_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else youtube_url
 
-    if has_transcript:
-        logger.info(f"📜 [자막 검증] 실제 자막 텍스트 기반 분석 시작 (총 {len(transcript_text)}자) | 샘플: {transcript_text[:200]}...")
-        compressed_transcript = clean_and_compress_transcript(transcript_text, duration_seconds)
-        transcript_section = f"""[실제 설교 자막 텍스트 (타임스탬프 포함)]
+    if not has_transcript:
+        logger.warning(f"❌ 설교 자막 추출 실패 또는 미제공 영상: {youtube_url}")
+        raise ValueError(
+            "유튜브 영상에서 설교 자막(CC 또는 자동 생성 자막)을 추출할 수 없습니다.\n"
+            "• 유튜브 영상의 자막 설정이 켜져 있는지 확인해주세요.\n"
+            "• 또는 상단의 '설교 텍스트 직접 입력' 탭을 이용하시면 준비된 설교문으로 즉시 쇼츠 및 묵상 카드를 생성할 수 있습니다."
+        )
+
+    logger.info(f"📜 [자막 검증] 실제 자막 텍스트 기반 분석 시작 (총 {len(transcript_text)}자) | 샘플: {transcript_text[:200]}...")
+    compressed_transcript = clean_and_compress_transcript(transcript_text, duration_seconds)
+    transcript_section = f"""[실제 설교 자막 텍스트 (타임스탬프 포함)]
 {compressed_transcript}"""
-        anti_hallucination_rule = """[절대 엄수 - 환각(Hallucination) 금지]:
+    anti_hallucination_rule = """[절대 엄수 - 환각(Hallucination) 금지]:
 - 절대 제공된 자막에 없는 내용을 지어내거나 창작하지 마세요.
 - 반드시 위 [실제 설교 자막 텍스트]에 기록된 실제 설교 말씀과 타임스탬프([MM:SS])만을 정확하게 사용하여 쇼츠 구간과 문장을 도출해야 합니다."""
-    else:
-        logger.info(f"🎥 [멀티모달 검증] 자막 부재 -> Gemini Part.from_uri 정규화 URL 전달: {normalized_url} (media_resolution=MEDIA_RESOLUTION_LOW)")
-        transcript_section = "[안내: 제공된 유튜브 영상(video/mp4)을 직접 시청하고 설교자의 실제 음성을 인식하여 타임스탬프를 추출하세요.]"
-        anti_hallucination_rule = f"""[절대 엄수 - 환각(Hallucination) 금지]:
-- 절대 내용을 상상하거나 지어내지 마세요.
-- 반드시 동봉된 유튜브 영상({normalized_url})에서 설교자가 실제로 발언한 음성만을 그대로 받아적어 실제 타임스탬프([MM:SS])와 함께 추출하세요. 가짜 내용 생성은 엄격히 금지됩니다."""
 
     prompt = f"""당신은 한국 설교 미디어 전문가입니다.
 아래 유튜브 설교 영상을 분석하여 JSON을 반환하세요.
@@ -218,22 +219,32 @@ async def analyze_sermon_video(
         media_resolution="MEDIA_RESOLUTION_LOW"  # 1시간 이상 긴 영상 처리 최적화
     )
     
-    # 자막이 없는 경우 구글 내부망 멀티모달 분석을 위해 정규화된 watch?v= URL 전달
-    if has_transcript:
-        contents_payload = prompt
-    else:
-        part = types.Part.from_uri(file_uri=normalized_url, mime_type="video/mp4")
-        contents_payload = [part, prompt]
+    contents_payload = prompt
 
+    loop = asyncio.get_running_loop()
     last_error = None
     for model_name in MAIN_ENGINE_MODELS:
         try:
-            logger.info(f"Gemini 메인 엔진 모델 시도: {model_name} (직접 분석={not has_transcript})")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents_payload,
-                config=gen_config
-            )
+            logger.info(f"Gemini 메인 엔진 모델 시도: {model_name} (자막 텍스트 기반)")
+            
+            # 동기 SDK 호출 블로킹 방지 및 모델당 75초 타임아웃 방어
+            def call_gemini():
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=contents_payload,
+                    config=gen_config
+                )
+
+            try:
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(None, call_gemini),
+                    timeout=75.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"⏰ Gemini 모델 ({model_name}) 75초 타임아웃 초과 -> 다음 모델 자동 폴백")
+                last_error = TimeoutError(f"Gemini 모델 ({model_name}) 75초 타임아웃 초과")
+                continue
+
             # response.text가 None인 경우 (MAX_TOKENS 등) 다음 모델로 폴백
             if not response.text:
                 logger.warning(f"빈 응답 ({model_name}): finish_reason={response.candidates[0].finish_reason if response.candidates else 'unknown'}")

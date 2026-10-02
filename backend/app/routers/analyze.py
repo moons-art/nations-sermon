@@ -79,10 +79,14 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             "progress": 15
         })
 
-        # yt-dlp는 동기 함수이므로 executor에서 실행
-        details = await loop.run_in_executor(
-            None, extract_video_details_and_transcript, url
-        )
+        # yt-dlp/자막 추출은 동기 함수이므로 executor에서 실행 (최대 35초 타임아웃)
+        try:
+            details = await asyncio.wait_for(
+                loop.run_in_executor(None, extract_video_details_and_transcript, url),
+                timeout=35.0
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError("유튜브 영상 정보 및 자막 추출 시간이 초과되었습니다 (35초 제한).")
         
         transcript_sample = details.get("transcript_text", "").strip()[:200]
         has_transcript = len(details.get("transcript_text", "")) > 200
@@ -93,15 +97,21 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
         )
 
         update_task({
-            "stage": "2단계: AI가 설교 본론 파트 심층 분석 중 (최대 2~3분)...",
+            "stage": "2단계: AI가 설교 본론 파트 심층 분석 중 (최대 1~2분)...",
             "progress": 40
         })
 
-        analysis = await analyze_sermon_video(
-            youtube_url=url,
-            video_details=details,
-            custom_api_key=api_key
-        )
+        try:
+            analysis = await asyncio.wait_for(
+                analyze_sermon_video(
+                    youtube_url=url,
+                    video_details=details,
+                    custom_api_key=api_key
+                ),
+                timeout=160.0
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError("AI 설교 분석 처리 시간이 초과되었습니다 (160초 제한). 잠시 후 다시 시도해주세요.")
 
         update_task({
             "stage": "3단계: 쇼츠 하이라이트 & 묵상 카드 생성 중...",
@@ -146,7 +156,7 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             "stage": f"❌ 분석 실패: {str(e)[:200]}"
         })
         record_analysis_log(task_id, url, "FAILED", str(e))
-        raise e
+        return
 
 
 
