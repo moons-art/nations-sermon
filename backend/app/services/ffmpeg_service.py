@@ -360,8 +360,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # 2. ASS 자막 합성 (libass 필터)
     # 윈도우 환경을 위해 경로의 콜론 등을 이스케이프 처리
     safe_ass_path = str(ass_path).replace('\\', '/').replace(':', '\\:')
-    v_chain.append(f"[{curr_v}]subtitles='{safe_ass_path}'[vout]")
-    curr_v = "vout"
+    v_chain.append(f"[{curr_v}]subtitles='{safe_ass_path}'[v_sub]")
+    curr_v = "v_sub"
 
     # ── [끝부분 설교가 끝나면 뒤에 있는 말을 페이드아웃/묵음 처리하고 자연스러운 여운 조성] ──
     src_dur = get_media_duration(source_video_path)
