@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any
 from app.services.ai_service import analyze_sermon_video
 from app.services.youtube_service import extract_video_details_and_transcript
 from app.services.cache_service import get_cached_analysis, save_cached_analysis
+from app.services.firestore_service import save_document, get_document
+from app.services.task_service import create_task
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +20,7 @@ class AnalyzeRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     force_refresh: Optional[bool] = False
 
-# 백그라운드 작업 인메모리 저장소
-analysis_tasks: Dict[str, Dict[str, Any]] = {}
+# 백그라운드 작업 인메모리 저장소는 더 이상 사용하지 않음 (Firestore로 대체)
 
 # 관리자 대시보드용 분석 로그 (실패 로그 및 전체 기록)
 analysis_logs: list = []
@@ -46,9 +47,15 @@ def record_analysis_log(task_id: str, url: str, status: str, error: Optional[str
 
 
 async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = None, force_refresh: bool = False):
-    task = analysis_tasks.get(task_id)
+    task = get_document("analysis_jobs", task_id)
     if not task:
+        logger.error(f"Task not found in Firestore: {task_id}")
         return
+        
+    def update_task(updates: dict):
+        task.update(updates)
+        task["updated_at"] = time.time()
+        save_document("analysis_jobs", task_id, task)
 
     loop = asyncio.get_event_loop()
     
@@ -58,17 +65,19 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             cached_data = get_cached_analysis(url)
             if cached_data:
                 logger.info(f"⚡ [과금 방지] 캐시된 분석 결과 즉시 반환: {task_id}")
-                task["data"] = cached_data
-                task["status"] = "COMPLETED"
-                task["progress"] = 100
-                task["stage"] = f"캐시 로드 완료! (API 과금 없이 즉시 반환, 쇼츠 {len(cached_data.get('shorts', []))}개)"
-                task["updated_at"] = time.time()
+                update_task({
+                    "data": cached_data,
+                    "status": "COMPLETED",
+                    "progress": 100,
+                    "stage": f"캐시 로드 완료! (API 과금 없이 즉시 반환, 쇼츠 {len(cached_data.get('shorts', []))}개)"
+                })
                 return
 
-        task["status"] = "PROCESSING"
-        task["stage"] = "1단계: 유튜브 영상 정보 및 설교 자막 추출 중..."
-        task["progress"] = 15
-        task["updated_at"] = time.time()
+        update_task({
+            "status": "PROCESSING",
+            "stage": "1단계: 유튜브 영상 정보 및 설교 자막 추출 중...",
+            "progress": 15
+        })
 
         # yt-dlp는 동기 함수이므로 executor에서 실행
         details = await loop.run_in_executor(
@@ -83,9 +92,10 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             f"앞부분 200자: {transcript_sample}..."
         )
 
-        task["stage"] = "2단계: AI가 설교 본론 파트 심층 분석 중 (최대 2~3분)..."
-        task["progress"] = 40
-        task["updated_at"] = time.time()
+        update_task({
+            "stage": "2단계: AI가 설교 본론 파트 심층 분석 중 (최대 2~3분)...",
+            "progress": 40
+        })
 
         analysis = await analyze_sermon_video(
             youtube_url=url,
@@ -93,9 +103,10 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
             custom_api_key=api_key
         )
 
-        task["stage"] = "3단계: 쇼츠 하이라이트 & 묵상 카드 생성 중..."
-        task["progress"] = 85
-        task["updated_at"] = time.time()
+        update_task({
+            "stage": "3단계: 쇼츠 하이라이트 & 묵상 카드 생성 중...",
+            "progress": 85
+        })
 
         # 메타데이터 보완 (yt-dlp 추출 정보 우선)
         if "metadata" not in analysis:
@@ -118,20 +129,22 @@ async def _run_async_analysis(task_id: str, url: str, api_key: Optional[str] = N
         # [과금 방지 2단계]: 분석 완료 결과 캐시 저장
         save_cached_analysis(url, analysis)
 
-        task["data"] = analysis
-        task["status"] = "COMPLETED"
-        task["progress"] = 100
-        task["stage"] = f"분석 완료! 쇼츠 {len(analysis.get('shorts', []))}개 생성"
-        task["updated_at"] = time.time()
+        update_task({
+            "data": analysis,
+            "status": "COMPLETED",
+            "progress": 100,
+            "stage": f"분석 완료! 쇼츠 {len(analysis.get('shorts', []))}개 생성"
+        })
         record_analysis_log(task_id, url, "COMPLETED")
         logger.info(f"백그라운드 설교 분석 완료: {task_id} | 쇼츠: {len(analysis.get('shorts', []))}개")
 
     except Exception as e:
         logger.error(f"백그라운드 설교 분석 실패({task_id}): {e}", exc_info=True)
-        task["status"] = "FAILED"
-        task["error"] = str(e)
-        task["stage"] = f"❌ 분석 실패: {str(e)[:200]}"
-        task["updated_at"] = time.time()
+        update_task({
+            "status": "FAILED",
+            "error": str(e),
+            "stage": f"❌ 분석 실패: {str(e)[:200]}"
+        })
         record_analysis_log(task_id, url, "FAILED", str(e))
 
 
@@ -148,7 +161,7 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
         if cached_data:
             task_id = f"task-{uuid.uuid4().hex[:8]}"
             now = time.time()
-            analysis_tasks[task_id] = {
+            task_data = {
                 "task_id": task_id,
                 "youtube_url": url,
                 "status": "COMPLETED",
@@ -160,6 +173,7 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
                 "created_at": now,
                 "updated_at": now
             }
+            save_document("analysis_jobs", task_id, task_data)
             return {
                 "status": "success",
                 "task_id": task_id,
@@ -169,19 +183,25 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
 
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     now = time.time()
-    analysis_tasks[task_id] = {
+    task_data = {
         "task_id": task_id,
         "youtube_url": url,
         "status": "QUEUED",
         "progress": 5,
-        "stage": "분석 작업 시작 중...",
+        "stage": "분석 작업 대기 중...",
         "data": None,
         "error": None,
         "created_at": now,
         "updated_at": now
     }
+    save_document("analysis_jobs", task_id, task_data)
 
-    background_tasks.add_task(_run_async_analysis, task_id, url, req.gemini_api_key, req.force_refresh or False)
+    create_task("/api/worker/analyze", {
+        "task_id": task_id,
+        "youtube_url": url,
+        "api_key": req.gemini_api_key,
+        "force_refresh": req.force_refresh or False
+    })
 
     return {
         "status": "success",
@@ -193,7 +213,7 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
 
 @router.get("/analyze/status/{task_id}")
 async def get_analyze_status(task_id: str) -> Dict[str, Any]:
-    task = analysis_tasks.get(task_id)
+    task = get_document("analysis_jobs", task_id)
     if not task:
         raise HTTPException(status_code=404, detail="해당 분석 작업을 찾을 수 없습니다.")
     return {
@@ -255,14 +275,14 @@ async def analyze_url(req: AnalyzeRequest) -> Dict[str, Any]:
 @router.get("/admin/dashboard")
 async def get_admin_dashboard() -> Dict[str, Any]:
     """관리자 대시보드 통계 및 실패 로그 기록 조회"""
-    from app.services.render_queue import render_manager
+    from app.services.firestore_service import get_all_documents
     from app.services.cache_service import CACHE_DIR
     
     # 캐시 파일 수
     cache_count = len(list(CACHE_DIR.glob("*.json"))) if CACHE_DIR.exists() else 0
     
     # 렌더링 작업 상태
-    render_jobs = render_manager.get_all_jobs()
+    render_jobs = get_all_documents("render_jobs")
     render_completed = sum(1 for j in render_jobs if j.get("status") == "COMPLETED")
     render_failed = sum(1 for j in render_jobs if j.get("status") == "FAILED")
     render_processing = sum(1 for j in render_jobs if j.get("status") in ["PROCESSING", "QUEUED"])

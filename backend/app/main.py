@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.routers import analyze, render, assets, sermon_edit
-from app.services.render_queue import render_manager
+from app.routers import analyze, render, assets, sermon_edit, worker
 from app.services.ffmpeg_service import generate_default_bgm_if_missing
 
 logging.basicConfig(
@@ -17,7 +16,6 @@ logger = logging.getLogger("seolgyo_ai")
 async def lifespan(app: FastAPI):
     logger.info("Seolgyo AI 백엔드 서버 가동 시작")
     generate_default_bgm_if_missing()
-    render_manager.start_worker()
     yield
     logger.info("Seolgyo AI 백엔드 서버 종료")
 
@@ -40,6 +38,7 @@ app.include_router(analyze.router)
 app.include_router(render.router)
 app.include_router(assets.router)
 app.include_router(sermon_edit.router)
+app.include_router(worker.router)
 
 @app.get("/")
 @app.get("/api/health")

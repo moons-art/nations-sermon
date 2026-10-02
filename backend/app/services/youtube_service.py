@@ -105,16 +105,17 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
         "raw_snippets": []
     }
 
-    proxy_url = get_youtube_proxy()
-    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    # [1GB 프록시 과금 방지] 메타데이터와 자막 추출은 텍스트(HTML/JSON) 기반이므로 무조건 일반 네트워크(로컬/구글망)를 사용합니다.
+    proxy_url = None
+    proxies = None
 
     # 1순위: 초경량 youtube-transcript-api + oEmbed
     if video_id:
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
             
-            # 1. 자막 추출 (프록시 적용)
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
+            # 1. 자막 추출 (1GB 프록시 절약을 위해 기본적으로 일반망 사용)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=None)
             try:
                 transcript = transcript_list.find_transcript(['ko', 'ko-KR', 'ko-kr'])
             except:
@@ -199,7 +200,8 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
             'ffmpeg_location': ffmpeg_dir,
             'extract_flat': False, # 메타데이터 전체 추출 필요
         }
-        apply_youtube_proxy(ydl_opts)
+        # [과금 방지] 프록시 적용 제외
+        # apply_youtube_proxy(ydl_opts)
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -277,9 +279,9 @@ def extract_video_details_and_transcript(url: str) -> Dict[str, Any]:
 
     return details
 
-def download_or_prepare_clip(url: str, start_time: str, end_time: str, job_id: str) -> Optional[Path]:
+def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_file: Path) -> Optional[Path]:
     """
-    지정된 URL 영상에서 특정 구간(start~end)만 크롭하여 mp4로 반환합니다.
+    지정된 URL 영상에서 특정 구간(start~end)만 크롭하여 target_file로 저장 후 반환합니다.
     (Youtube 봇 차단 우회를 위한 특수 헤더 및 Sticky Session 연동)
     """
     logger.info(f"🎥 영상 클립 추출 시작: {url} [{start_time} ~ {end_time}]")
@@ -291,7 +293,6 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, job_id: s
         logger.error("유효하지 않은 클립 구간입니다.")
         return None
 
-    target_file = OUTPUTS_DIR / f"{job_id}_clip.mp4"
     if target_file.exists() and target_file.stat().st_size > 10000:
         logger.info(f"클립 파일이 이미 존재합니다: {target_file}")
         return target_file
@@ -447,5 +448,6 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, job_id: s
 
     except Exception as e:
         logger.error(f"❌ yt-dlp 클립 다운로드 완전 실패: {e}")
+        raise RuntimeError(f"유튜브 클립 추출 완전 실패 (프록시 네트워크 이슈 등): {e}")
 
-    return None
+    raise RuntimeError(f"유튜브 클립 다운로드 타임아웃 또는 알 수 없는 오류 발생")

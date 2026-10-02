@@ -1,7 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-from app.services.render_queue import render_manager
+import uuid
+import time
+from app.services.firestore_service import save_document, get_document, get_all_documents
+from app.services.task_service import create_task
 
 router = APIRouter(prefix="/api/render", tags=["Render"])
 
@@ -29,8 +32,24 @@ async def queue_renders(req: BatchRenderRequest):
         raise HTTPException(status_code=400, detail="선택된 쇼츠 항목이 없습니다.")
 
     queued_jobs = []
+    now = time.time()
     for item in req.items:
-        job_id = render_manager.add_job(item.model_dump())
+        job_id = f"job-{uuid.uuid4().hex[:8]}"
+        job_data = item.model_dump()
+        job_data.update({
+            "job_id": job_id,
+            "status": "QUEUED",
+            "progress": 0,
+            "stage": "대기 중...",
+            "created_at": now,
+            "updated_at": now
+        })
+        
+        save_document("render_jobs", job_id, job_data)
+        
+        # Cloud Tasks에 비동기 워커로 할당
+        create_task("/api/worker/render", {"job_id": job_id})
+        
         queued_jobs.append({
             "job_id": job_id,
             "short_id": item.short_id,
@@ -40,20 +59,23 @@ async def queue_renders(req: BatchRenderRequest):
 
     return {
         "status": "success",
-        "message": f"{len(queued_jobs)}개의 쇼츠가 순차 렌더링 큐에 등록되었습니다.",
+        "message": f"{len(queued_jobs)}개의 쇼츠가 클라우드 렌더링 큐에 등록되었습니다.",
         "jobs": queued_jobs
     }
 
 @router.get("/jobs")
 async def list_jobs():
+    jobs = get_all_documents("render_jobs")
+    # 최신 순 정렬
+    jobs.sort(key=lambda x: x.get("created_at", 0), reverse=True)
     return {
         "status": "success",
-        "jobs": render_manager.get_all_jobs()
+        "jobs": jobs
     }
 
 @router.get("/status/{job_id}")
 async def get_status(job_id: str):
-    job = render_manager.get_job(job_id)
+    job = get_document("render_jobs", job_id)
     if not job:
         raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없습니다.")
     return {
@@ -63,12 +85,18 @@ async def get_status(job_id: str):
 
 @router.delete("/jobs/{job_id}")
 async def delete_job(job_id: str):
-    success = render_manager.delete_job(job_id)
-    if not success:
+    job = get_document("render_jobs", job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="해당 작업을 찾을 수 없거나 이미 삭제되었습니다.")
+    
+    job["status"] = "CANCELLED"
+    job["stage"] = "작업 취소됨"
+    job["updated_at"] = time.time()
+    save_document("render_jobs", job_id, job)
+    
     return {
         "status": "success",
-        "message": f"작업({job_id})이 삭제되었습니다."
+        "message": f"작업({job_id})이 취소되었습니다."
     }
 
 @router.get("/download-compressed/{job_id}")
@@ -79,10 +107,15 @@ async def download_compressed(job_id: str):
     import subprocess
     from app.config import OUTPUTS_DIR, FFMPEG_PATH
 
-    job = render_manager.get_job(job_id)
-    if not job or not job.get("file_path"):
+    job = get_document("render_jobs", job_id)
+    if not job or not job.get("video_url"):
         raise HTTPException(status_code=404, detail="영상 파일을 찾을 수 없습니다.")
 
+    # video_url은 Firebase url이거나 로컬 url임.
+    # 만약 file_path 가 없다면 에러 리턴, 있으면 다운로드.
+    if not job.get("file_path"):
+        raise HTTPException(status_code=404, detail="서버에 원본 파일 경로 정보가 없습니다.")
+    
     orig_path = Path(job["file_path"])
     if not orig_path.exists():
         raise HTTPException(status_code=404, detail="원본 비디오 파일이 존재하지 않습니다.")
