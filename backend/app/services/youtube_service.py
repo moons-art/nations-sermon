@@ -33,23 +33,45 @@ def parse_time_to_seconds(time_str: str) -> int:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
     return 0
 
-def get_youtube_proxy() -> Optional[str]:
-    """시스템 환경변수 YOUTUBE_PROXY 값을 조회하고 유효한 경우 반환 (미설정 시 None)"""
+def get_youtube_proxy(sticky_session_id: Optional[str] = None) -> Optional[str]:
+    """
+    시스템 환경변수 YOUTUBE_PROXY 값을 조회하고 유효한 경우 반환.
+    sticky_session_id가 주어지면 ThorData 프록시 유저네임에 세션을 고정하여 동일 IP를 보장함.
+    """
     proxy = os.getenv("YOUTUBE_PROXY", "").strip()
-    return proxy if proxy else None
+    if not proxy:
+        return None
+        
+    if sticky_session_id and "td-customer" in proxy:
+        # http://username:password@host:port 형식에서 username 부분에 session 추가
+        # 예: td-customer-XXX -> td-customer-XXX-session-YYYY-sesstime-10
+        try:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(proxy)
+            if parsed.username and "-session-" not in parsed.username:
+                new_username = f"{parsed.username}-session-{sticky_session_id}-sesstime-10"
+                # netloc 재구성
+                netloc = f"{new_username}:{parsed.password}@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                proxy = urllib.parse.urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+        except Exception as e:
+            logger.warning(f"프록시 Sticky Session 주입 실패: {e}")
+            
+    return proxy
 
-def apply_youtube_proxy(ydl_opts: Dict[str, Any]):
+def apply_youtube_proxy(ydl_opts: Dict[str, Any], sticky_session_id: Optional[str] = None):
     """
     유튜브 전용 프록시(YOUTUBE_PROXY) 및 PO Token Provider(4416) 연동.
     - 시스템 전역 환경변수는 일절 오염시키지 않고, 오직 ydl_opts['proxy']에만 핀셋 주입.
     - 환경변수가 없으면 직접 연결(Fallback).
     - 쿠키 파일, 억지 User-Agent 변조, player_client 강제 조작 코드 완전 제거.
     """
-    proxy_url = get_youtube_proxy()
+    proxy_url = get_youtube_proxy(sticky_session_id)
     if proxy_url:
         ydl_opts["proxy"] = proxy_url
         masked_proxy = re.sub(r':([^:@]+)@', ':****@', proxy_url)
-        logger.info(f"🌐 [주거용 프록시 적용] yt-dlp 프록시 주입 완료: {masked_proxy}")
+        logger.info(f"🌐 [주거용 프록시 적용] yt-dlp 프록시 주입 완료 (Sticky: {bool(sticky_session_id)}): {masked_proxy}")
     else:
         ydl_opts.pop("proxy", None)
 
@@ -306,16 +328,17 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                         return base_path
         return None
 
-    # 트래픽 절약 720p MP4 제한 포맷 (원본 4K/1080p 전체 다운로드 원천 방지)
-    format_720p = (
-        'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/'
-        'bestvideo[height<=720]+bestaudio/'
-        'best[height<=720][ext=mp4]/'
-        'best[height<=720]/'
-        'best[height<=1080]/best'
-    )
+    import uuid
+    sticky_session_id = uuid.uuid4().hex[:8]
+    proxy_url = get_youtube_proxy(sticky_session_id)
 
-    proxy_url = get_youtube_proxy()
+    # 단일 프로그레시브 720p 스트림 우선 (DASH 멀티스트림 회피)
+    format_720p_progressive = (
+        'best[ext=mp4][height<=720]/'
+        'best[height<=720]/'
+        'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/'
+        'bestvideo[height<=720]+bestaudio/best'
+    )
 
     # ─────────────────────────────────────────────────────────────
     # [1차 시도]: yt-dlp 스트림 URL 추출 -> FFmpeg 직접 input seek (-ss / -t / -c copy)
@@ -323,13 +346,13 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     # ─────────────────────────────────────────────────────────────
     try:
         opts_extract = {
-            'format': format_720p,
+            'format': format_720p_progressive,
             'quiet': True,
             'no_warnings': True,
             'remote_components': ['ejs:github'],
             'socket_timeout': 15,
         }
-        apply_youtube_proxy(opts_extract)
+        apply_youtube_proxy(opts_extract, sticky_session_id)
 
         with yt_dlp.YoutubeDL(opts_extract) as ydl:
             info = ydl.extract_info(normalized_url, download=False)
@@ -340,9 +363,22 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
         if video_fmt and video_fmt.get('url'):
             cmd = [FFMPEG_PATH, "-y"]
+            
+            # 1. 환경변수를 통한 프록시 주입 (Sticky)
+            env = os.environ.copy()
             if proxy_url:
+                env["http_proxy"] = proxy_url
+                env["https_proxy"] = proxy_url
+                # FFmpeg CLI 옵션으로도 프록시 주입
                 cmd.extend(["-http_proxy", proxy_url])
 
+            # 2. yt-dlp가 취득한 HTTP Headers를 완벽하게 복원 (CRLF 규격 준수)
+            http_headers = info.get('http_headers', {})
+            if http_headers:
+                headers_arg = "".join(f"{k}: {v}\r\n" for k, v in http_headers.items())
+                cmd.extend(["-headers", headers_arg])
+
+            # 3. Input Options (-ss, -t) 배치 후 -i <URL>
             cmd.extend([
                 "-ss", str(start_sec),
                 "-t", str(clip_duration),
@@ -352,6 +388,8 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             if audio_fmt and audio_fmt.get('url') and audio_fmt['url'] != video_fmt['url']:
                 if proxy_url:
                     cmd.extend(["-http_proxy", proxy_url])
+                if http_headers:
+                    cmd.extend(["-headers", headers_arg])
                 cmd.extend([
                     "-ss", str(start_sec),
                     "-t", str(clip_duration),
@@ -362,20 +400,23 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                 cmd.extend(["-c", "copy", str(target_file)])
 
             logger.info(f"⚡ [1차 FFmpeg 직접 Seek 실행] 구간: {start_sec:.1f}s ~ {end_sec:.1f}s")
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40)
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40, env=env)
             if res.returncode == 0 and target_file.exists() and target_file.stat().st_size > 10000:
                 file_size_mb = target_file.stat().st_size / (1024 * 1024)
                 logger.info(f"✅ [1차 FFmpeg 직접 Seek 성공] 파일: {target_file.name} ({file_size_mb:.2f} MB)")
                 return target_file
+            else:
+                err_msg = res.stderr.decode("utf-8", errors="replace")
+                logger.warning(f"1차 FFmpeg Seek 실패 (Return: {res.returncode}):\n{err_msg}")
     except Exception as e2:
-        logger.warning(f"⚠️ 1차 Direct Stream Seek 실패: {e2} -> 2차 단일 포맷 폴백 시도")
+        logger.warning(f"⚠️ 1차 Direct Stream Seek 예외 발생: {e2} -> 2차 단일 포맷 폴백 시도")
 
     # ─────────────────────────────────────────────────────────────
     # [2차 시도 (최후 폴백)]: 단일 포맷 best[height<=720] + FFmpeg Seek
     # ─────────────────────────────────────────────────────────────
     try:
         opts_fallback = {
-            'format': 'best[height<=720]/best',
+            'format': format_720p_progressive,
             'merge_output_format': 'mp4',
             'outtmpl': str(target_file.with_suffix('')) + '.%(ext)s',
             'download_ranges': section_ranges,
@@ -385,7 +426,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'socket_timeout': 25,
             'retries': 2,
         }
-        apply_youtube_proxy(opts_fallback)
+        apply_youtube_proxy(opts_fallback, sticky_session_id)
 
         with yt_dlp.YoutubeDL(opts_fallback) as ydl:
             ydl.download([normalized_url])
