@@ -192,9 +192,32 @@ def render_short_video_with_pillow_overlay(
     hdr_img.save(hdr_path)
     temp_images.append(hdr_path)
 
-    # 2. 문장별 자막 오버레이 생성
+    # 2. 본문 자막용 ASS 파일(libass) 생성
     clip_start_sec = parse_time_to_seconds(start_time)
-    sub_overlays = [] # (path, rel_start, rel_end)
+    
+    # 템플릿에 따른 자막 Y 위치 설정
+    if template_type in ["full_cinema", "center_crop"]:
+        sub_y = 1320
+    elif template_type in ["cinema_letterbox", "blue_wide", "yellow_wide", "wide"]:
+        sub_y = 1380
+    elif template_type in ["transparent_minimal", "dark_minimal", "yellow_minimal", "modern_grey"]:
+        sub_y = 1465
+    else:
+        sub_y = 1360
+
+    ass_header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,NanumGothicBold,76,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,5,0,2,20,20,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    ass_events = []
 
     for idx, sentence in enumerate(sentences):
         text = str(sentence.get("text", "")).strip()
@@ -211,22 +234,13 @@ def render_short_video_with_pillow_overlay(
             rel_start = max(0.0, raw_start)
             rel_end = max(rel_start + 0.8, raw_end)
 
-        sub_img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
-        sub_draw = ImageDraw.Draw(sub_img)
-
-        # ── [자막 크기 & 3줄 청크 분할] ──
-        max_text_w = 980
-        sub_font_size = 84
-        fitted_sub_font = get_korean_font(size=sub_font_size, heavy=True)
-
-        # 1. 980px 폭에 맞춰 단어 단위 래핑
+        # 단어별 래핑 (대략 24자 기준 줄바꿈)
         words = text.split()
         all_lines = []
         curr_l = ""
         for w in words:
             test_l = f"{curr_l} {w}".strip() if curr_l else w
-            tb = sub_draw.textbbox((0, 0), test_l, font=fitted_sub_font)
-            if (tb[2] - tb[0]) <= max_text_w:
+            if len(test_l) <= 24:
                 curr_l = test_l
             else:
                 if curr_l:
@@ -235,23 +249,20 @@ def render_short_video_with_pillow_overlay(
         if curr_l:
             all_lines.append(curr_l)
 
-        # 2. 최대 3줄씩 청크(Chunk)로 분할
+        # 3줄씩 청크 분할
         chunks = []
         for i in range(0, len(all_lines), 3):
-            chunk_text = "\n".join(all_lines[i:i+3])
-            chunks.append(chunk_text)
-
+            chunks.append(all_lines[i:i+3])
         if not chunks:
-            chunks = [text]
+            chunks = [[text]]
 
-        # 3. 3줄 청크가 여러 개일 경우, 전체 시간(rel_start ~ rel_end)을 글자 수 비율로 나눠서 순차 표출
         num_chunks = len(chunks)
-        total_chars = max(1, sum(len(c.replace('\n', '')) for c in chunks))
+        total_chars = max(1, sum(len("".join(c)) for c in chunks))
         total_duration = max(1.0, rel_end - rel_start)
 
         curr_chunk_start = rel_start
-        for c_idx, chunk_text in enumerate(chunks):
-            c_chars = max(1, len(chunk_text.replace('\n', '')))
+        for c_idx, chunk_lines in enumerate(chunks):
+            c_chars = max(1, len("".join(chunk_lines)))
             if num_chunks == 1:
                 c_start = rel_start
                 c_end = rel_end
@@ -264,40 +275,20 @@ def render_short_video_with_pillow_overlay(
                 c_end = c_start + c_dur
                 curr_chunk_start = c_end
 
-            # 개별 청크 오버레이 이미지 생성
-            c_img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
-            c_draw = ImageDraw.Draw(c_img)
+            # ASS 타임스탬프 형식 변환
+            t_start = format_seconds_to_ass(c_start)
+            t_end = format_seconds_to_ass(c_end)
+            
+            # ASS 줄바꿈 적용 (\N)
+            ass_text = "\\N".join(chunk_lines)
+            
+            # \pos 태그를 사용하여 정확한 위치에 중앙 정렬
+            event_line = f"Dialogue: 0,{t_start},{t_end},Default,,0,0,0,,{{\\pos(540,{sub_y})}}{ass_text}"
+            ass_events.append(event_line)
 
-            # [자막 위치 결정]
-            # - 와이드 시리즈 (cinema_letterbox, blue_wide, yellow_wide): 설교영상 아래쪽 1/4 지점 (Y=1380)
-            # - 미니멀 시리즈 (transparent_minimal, dark_minimal, yellow_minimal, modern_grey): Y=1465
-            # - 기타/풀스크린: Y=1460
-            if template_type in ["full_cinema", "center_crop"]:
-                sub_y = 1320  # 풀스크린: 자막을 위로 더 끌어올림
-            elif template_type in ["cinema_letterbox", "blue_wide", "yellow_wide", "wide"]:
-                sub_y = 1380
-            elif template_type in ["transparent_minimal", "dark_minimal", "yellow_minimal", "modern_grey"]:
-                sub_y = 1465
-            else:
-                sub_y = 1360
-
-            # 자막 텍스트 렌더링 (글자별 5px 검은 외곽선)
-            c_draw.multiline_text(
-                (540, sub_y),
-                chunk_text,
-                fill=(255, 255, 255, 255),
-                font=fitted_sub_font,
-                anchor="mm",
-                align="center",
-                spacing=16,
-                stroke_width=5,
-                stroke_fill=(0, 0, 0, 255)
-            )
-
-            sub_path = output_video_path.parent / f"tmp_sub_{idx}_{c_idx}_{output_video_path.stem}.png"
-            c_img.save(sub_path)
-            temp_images.append(sub_path)
-            sub_overlays.append((sub_path, c_start, c_end))
+    ass_content = ass_header + "\n".join(ass_events)
+    ass_path = output_video_path.parent / f"tmp_subs_{output_video_path.stem}.ass"
+    ass_path.write_text(ass_content, encoding="utf-8")
 
     # 3. FFmpeg 명령어 조합
     # 비디오 스케일링 필터 (1080x1920 9:16)
@@ -351,39 +342,42 @@ def render_short_video_with_pillow_overlay(
 
     # 헤더 이미지 입력
     cmd.extend(["-i", str(hdr_path)])
-    
-    # 자막 이미지들 입력
-    for s_path, _, _ in sub_overlays:
-        cmd.extend(["-i", str(s_path)])
 
     # BGM 입력
     bgm_input_idx = None
     if bgm_path and bgm_path.exists():
         cmd.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
-        bgm_input_idx = 1 + 1 + len(sub_overlays)
+        bgm_input_idx = 2
 
     # 필터 컴플렉스 연결
     v_chain = [base_vfilter]
     curr_v = "v_base"
     
-    # 헤더 오버레이 합성
+    # 1. 헤더 오버레이 합성
     v_chain.append(f"[{curr_v}][1:v]overlay=0:0[v_hdr]")
     curr_v = "v_hdr"
 
-    # 자막 오버레이 합성 (타임스탬프 싱크)
-    for i, (_, r_start, r_end) in enumerate(sub_overlays):
-        next_v = f"v_sub_{i}" if i < len(sub_overlays) - 1 else "vout"
-        img_idx = 2 + i
-        v_chain.append(f"[{curr_v}][{img_idx}:v]overlay=0:0:enable='between(t,{r_start:.2f},{r_end:.2f})'[{next_v}]")
-        curr_v = next_v
+    # 2. ASS 자막 합성 (libass 필터)
+    # 윈도우 환경을 위해 경로의 콜론 등을 이스케이프 처리
+    safe_ass_path = str(ass_path).replace('\\', '/').replace(':', '\\:')
+    v_chain.append(f"[{curr_v}]subtitles='{safe_ass_path}'[vout]")
+    curr_v = "vout"
 
     # ── [끝부분 설교가 끝나면 뒤에 있는 말을 페이드아웃/묵음 처리하고 자연스러운 여운 조성] ──
     src_dur = get_media_duration(source_video_path)
     if src_dur <= 0:
         src_dur = max(15.0, parse_time_to_seconds(end_time) - parse_time_to_seconds(start_time))
 
-    last_sub_end = max([oe for _, _, oe in sub_overlays]) if sub_overlays else (src_dur - 1.5)
-    fade_start = min(src_dur - 1.5, last_sub_end + 0.8)
+    # ASS 파일에 있는 마지막 이벤트의 종료 시간을 추출 (없으면 src_dur - 1.5)
+    last_sub_end_sec = src_dur - 1.5
+    if ass_events:
+        try:
+            last_event = ass_events[-1]
+            end_t_str = last_event.split(',')[2]
+            last_sub_end_sec = parse_time_to_seconds(end_t_str)
+        except: pass
+
+    fade_start = min(src_dur - 1.5, last_sub_end_sec + 0.8)
     fade_start = max(1.0, fade_start)
     fade_dur = max(0.8, src_dur - fade_start)
 
@@ -396,10 +390,6 @@ def render_short_video_with_pillow_overlay(
     a_filter = ""
     if bgm_input_idx is not None:
         if has_audio:
-            # 설교 음성: volume=1.0 그대로 유지, 말씀 종료 후 페이드아웃
-            # BGM 볼륨 분기:
-            # 모던ccm 스타일(modern_ccm.mp3), 바이얼린 워십(violin_worship.mp3)은 지금 크기의 0.8로 줄여서 0.21로 설정
-            # 나머지는 0.36 유지
             bgm_name = bgm_path.name if bgm_path else ""
             if any(k in bgm_name for k in ["modern_ccm", "violin_worship"]):
                 chosen_bgm_vol = 0.21
@@ -426,7 +416,7 @@ def render_short_video_with_pillow_overlay(
             cmd.extend([
                 "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                 "-filter_complex", ";".join(v_chain),
-                "-map", "[vout]", "-map", f"{1 + len(sub_overlays) + 1}:a"
+                "-map", "[vout]", "-map", "2:a"
             ])
 
     cmd.extend([
@@ -442,12 +432,15 @@ def render_short_video_with_pillow_overlay(
 
     try:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        logger.info(f"Pillow 오버레이 쇼츠 렌더링 완료: {output_video_path}")
+        logger.info(f"✅ libass 기반 초고속 쇼츠 렌더링 완료: {output_video_path}")
     finally:
         for p in temp_images:
             if p.exists():
                 try: p.unlink()
                 except Exception: pass
+        if 'ass_path' in locals() and ass_path.exists():
+            try: ass_path.unlink()
+            except Exception: pass
 
     return output_video_path
 
