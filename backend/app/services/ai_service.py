@@ -172,7 +172,7 @@ async def analyze_sermon_video(
     gen_config = types.GenerateContentConfig(
         response_mime_type="application/json",
         temperature=0.1,  # 환각 방지 최저 온도
-        media_resolution="MEDIA_RESOLUTION_LOW"  # 1시간 이상 긴 영상 처리 최적화
+        media_resolution="MEDIA_RESOLUTION_LOW"
     )
     
     def build_payload(prompt_text):
@@ -202,6 +202,7 @@ async def analyze_sermon_video(
                 if rt.startswith("```json"): rt = rt[7:]
                 elif rt.startswith("```"): rt = rt[3:]
                 if rt.endswith("```"): rt = rt[:-3]
+                import json
                 return json.loads(rt.strip())
             except Exception as e:
                 err_str = str(e).lower()
@@ -223,62 +224,57 @@ async def analyze_sermon_video(
         # 3개의 JSON 결과를 하나로 병합
         parsed = {**res_shorts, **res_meditations, **res_cardnews}
         logger.info(f"✅ AI 병렬 분석 완료: shorts {len(parsed.get('shorts', []))}개")
-            
-            # 메타데이터 보완
-            if "metadata" not in parsed:
-                parsed["metadata"] = {}
-            if details.get("thumbnail") and not parsed["metadata"].get("thumbnail"):
-                parsed["metadata"]["thumbnail"] = details.get("thumbnail", "")
-            if details.get("title") and not parsed["metadata"].get("title"):
-                parsed["metadata"]["title"] = details.get("title", "")
-            if channel and not parsed["metadata"].get("churchName"):
-                parsed["metadata"]["churchName"] = channel
+        
+        # 메타데이터 보완
+        if "metadata" not in parsed:
+            parsed["metadata"] = {}
+        if details.get("thumbnail") and not parsed["metadata"].get("thumbnail"):
+            parsed["metadata"]["thumbnail"] = details.get("thumbnail", "")
+        if details.get("title") and not parsed["metadata"].get("title"):
+            parsed["metadata"]["title"] = details.get("title", "")
+        if channel and not parsed["metadata"].get("churchName"):
+            parsed["metadata"]["churchName"] = channel
 
-            # ── [3번 요구사항: 영상-자막 일치 2차 정밀 검증 및 보정] ──
-            raw_snippets = details.get("raw_snippets", [])
-            if raw_snippets and parsed.get("shorts"):
-                for s_item in parsed["shorts"]:
-                    s_start = s_item.get("startTime", "00:00")
-                    s_end = s_item.get("endTime", "00:30")
-                    # 시간 포맷 표준화 (M:SS -> MM:SS)
-                    if len(s_start.split(':')) == 2 and len(s_start.split(':')[0]) == 1:
-                        s_start = f"0{s_start}"
-                        s_item["startTime"] = s_start
-                    if len(s_end.split(':')) == 2 and len(s_end.split(':')[0]) == 1:
-                        s_end = f"0{s_end}"
-                        s_item["endTime"] = s_end
+        # ── [3번 요구사항: 영상-자막 일치 2차 정밀 검증 및 보정] ──
+        raw_snippets = details.get("raw_snippets", [])
+        if raw_snippets and parsed.get("shorts"):
+            for s_item in parsed["shorts"]:
+                s_start = s_item.get("startTime", "00:00")
+                s_end = s_item.get("endTime", "00:30")
+                # 시간 포맷 표준화 (M:SS -> MM:SS)
+                if len(s_start.split(':')) == 2 and len(s_start.split(':')[0]) == 1:
+                    s_start = f"0{s_start}"
+                    s_item["startTime"] = s_start
+                if len(s_end.split(':')) == 2 and len(s_end.split(':')[0]) == 1:
+                    s_end = f"0{s_end}"
+                    s_item["endTime"] = s_end
 
-                    # sentences 검증: 만약 AI가 생성한 sentences가 비었거나 타임스탬프가 어긋난 경우
-                    # 실제 유튜브 원본 자막 구간에서 오차 없이 정확히 채워넣음
-                    ai_sentences = s_item.get("sentences", [])
-                    if not ai_sentences or len(ai_sentences) < 2:
-                        from app.services.youtube_service import parse_time_to_seconds
-                        st_sec = parse_time_to_seconds(s_start)
-                        et_sec = parse_time_to_seconds(s_end)
-                        matched = []
-                        for idx, snip in enumerate(raw_snippets):
-                            snip_s = snip["start"]
-                            snip_e = snip_s + snip.get("duration", 2.5)
-                            if st_sec <= snip_s <= et_sec:
-                                sm = int(snip_s // 60)
-                                ss = int(snip_s % 60)
-                                em = int(snip_e // 60)
-                                es = int(snip_e % 60)
-                                matched.append({
-                                    "id": idx + 1,
-                                    "start": f"{sm:02d}:{ss:02d}",
-                                    "end": f"{em:02d}:{es:02d}",
-                                    "text": snip["text"]
-                                })
-                        if matched:
-                            s_item["sentences"] = matched
-                            logger.info(f"[{s_item.get('id')}] 유튜브 원본 자막 싱크와 100% 일치하도록 보정 완료 ({len(matched)}개 문장)")
+                # sentences 검증: 만약 AI가 생성한 sentences가 비었거나 타임스탬프가 어긋난 경우
+                ai_sentences = s_item.get("sentences", [])
+                if not ai_sentences or len(ai_sentences) < 2:
+                    from app.services.youtube_service import parse_time_to_seconds
+                    st_sec = parse_time_to_seconds(s_start)
+                    et_sec = parse_time_to_seconds(s_end)
+                    matched = []
+                    for idx, snip in enumerate(raw_snippets):
+                        snip_s = snip["start"]
+                        snip_e = snip_s + snip.get("duration", 2.5)
+                        if st_sec <= snip_s <= et_sec:
+                            sm = int(snip_s // 60)
+                            ss = int(snip_s % 60)
+                            em = int(snip_e // 60)
+                            es = int(snip_e % 60)
+                            matched.append({
+                                "id": idx + 1,
+                                "start": f"{sm:02d}:{ss:02d}",
+                                "end": f"{em:02d}:{es:02d}",
+                                "text": snip["text"]
+                            })
+                    if matched:
+                        s_item["sentences"] = matched
+                        logger.info(f"[{s_item.get('id')}] 유튜브 원본 자막 싱크와 100% 일치하도록 보정 완료 ({len(matched)}개 문장)")
 
-            return parsed
-            
-        except Exception as e:
-            logger.warning(f"JSON 병합 실패 또는 파싱 실패: {e}")
-            raise RuntimeError(f"AI 분석 결과 병합 실패: {e}")
+        return parsed
 
     except Exception as e:
         logger.warning(f"AI 병렬 분석 실패: {e}")
