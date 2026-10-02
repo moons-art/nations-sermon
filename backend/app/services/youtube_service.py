@@ -6,7 +6,7 @@ import urllib.request
 import json as pyjson
 from pathlib import Path
 from typing import Dict, Any, Optional
-from app.config import FFMPEG_PATH, TEST_VIDEO_DIR
+from app.config import FFMPEG_PATH, TEST_VIDEO_DIR, OUTPUTS_DIR
 
 logger = logging.getLogger(__name__)
 
