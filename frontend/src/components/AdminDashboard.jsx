@@ -19,7 +19,14 @@ import {
   Info,
   Calendar,
   CreditCard,
-  Sparkles
+  Sparkles,
+  ArrowRight,
+  Workflow,
+  Calculator,
+  TrendingDown,
+  ShieldCheck,
+  Zap,
+  Check
 } from 'lucide-react';
 import { fetchAdminDashboard } from '../api/client';
 
@@ -27,8 +34,12 @@ export default function AdminDashboard({ currentUser }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('infra'); // 'infra' | 'logs'
+  const [activeTab, setActiveTab] = useState('workflow'); // 'workflow' | 'infra' | 'logs'
   const [filter, setFilter] = useState('all'); // 'all' | 'failed' | 'completed'
+
+  // 실시간 과금 시뮬레이션 계산기 상태
+  const [calcSermonCount, setCalcSermonCount] = useState(8); // 월 설교 분석 편수 (기본 8편)
+  const [calcShortsPerSermon, setCalcShortsPerSermon] = useState(3); // 설교당 생성할 쇼츠 편수 (기본 3편)
 
   const loadData = async () => {
     setLoading(true);
@@ -156,8 +167,19 @@ export default function AdminDashboard({ currentUser }) {
         </div>
       </div>
 
-      {/* 대시보드 뷰 전환 탭 */}
-      <div className="flex items-center gap-2 p-1.5 bg-white border border-[#EAE8E1] rounded-2xl">
+      {/* 대시보드 뷰 전환 탭 (3대 메뉴) */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border border-[#EAE8E1] rounded-2xl">
+        <button
+          onClick={() => setActiveTab('workflow')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+            activeTab === 'workflow'
+              ? 'bg-[#282622] text-[#FAF9F5] shadow-xs'
+              : 'text-[#807D77] hover:text-[#282622] hover:bg-[#FAF9F5]'
+          }`}
+        >
+          <Workflow className="w-4 h-4 text-[#DA7756]" />
+          <span>분석 & 숏폼 워크플로우 · 실시간 과금 계산기</span>
+        </button>
         <button
           onClick={() => setActiveTab('infra')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
@@ -166,8 +188,8 @@ export default function AdminDashboard({ currentUser }) {
               : 'text-[#807D77] hover:text-[#282622] hover:bg-[#FAF9F5]'
           }`}
         >
-          <Layers className="w-4 h-4 text-[#DA7756]" />
-          <span>인프라 아키텍처 · 과금 예시 · 주거용 프록시 가이드</span>
+          <Layers className="w-4 h-4 text-blue-600" />
+          <span>인프라 아키텍처 · 주거용 프록시 가이드</span>
         </button>
         <button
           onClick={() => setActiveTab('logs')}
@@ -178,11 +200,347 @@ export default function AdminDashboard({ currentUser }) {
           }`}
         >
           <AlertTriangle className="w-4 h-4 text-amber-500" />
-          <span>설교 분석 및 렌더링 작업 로그 ({logs.length})</span>
+          <span>서버 작업 및 에러 로그 ({logs.length})</span>
         </button>
       </div>
 
-      {/* 탭 1: 인프라 아키텍처 · 과금 가이드 · 주거용 프록시 정보 */}
+      {/* ─────────────────────────────────────────────────────────────
+          TAB 1: 워크플로우 명세 및 실시간 과금 시뮬레이션 계산기
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'workflow' && (() => {
+        const totalShorts = calcSermonCount * calcShortsPerSermon;
+        const analysisProxyMB = calcSermonCount * 0.03; // 자막 추출: 편당 약 30KB
+        const renderProxyMB = totalShorts * 20; // 쇼츠 추출: 편당 약 20MB
+        const totalProxyMB = analysisProxyMB + renderProxyMB;
+        const totalProxyGB = totalProxyMB / 1024;
+        const proxyCostKRW = Math.round(totalProxyGB * 2500); // 1GB당 $1.80 (약 2,500원)
+        const proxyCostUSD = (totalProxyGB * 1.80).toFixed(2);
+        const geminiCostPaidKRW = calcSermonCount * 4; // 유료 시 편당 약 4원
+
+        return (
+          <div className="space-y-6 animate-fadeIn">
+            {/* 1. 실시간 월간 총 예상 비용 계산기 인터랙티브 카드 */}
+            <div className="bg-white rounded-2xl border border-[#EAE8E1] p-6 space-y-5 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EAE8E1] pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                    <Calculator className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-[#282622]">
+                      실시간 월간 예상 운영 비용 계산기 (교회 규모별 시뮬레이션)
+                    </h3>
+                    <p className="text-xs text-[#807D77]">
+                      설교 편수와 숏폼 제작 수량을 조절하여 한 달 클라우드 및 프록시 유지비를 실시간으로 산출합니다.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 규모별 빠른 프리셋 버튼 */}
+                <div className="flex items-center gap-1.5 self-start sm:self-auto bg-[#FAF9F5] p-1 rounded-xl border border-[#EAE8E1]">
+                  <span className="text-[10px] font-bold text-[#807D77] px-1.5">프리셋:</span>
+                  <button
+                    onClick={() => { setCalcSermonCount(4); setCalcShortsPerSermon(2); }}
+                    className="px-2 py-1 text-[11px] font-semibold rounded-lg hover:bg-white text-[#282622] transition-colors"
+                  >
+                    소형 (월 4편)
+                  </button>
+                  <button
+                    onClick={() => { setCalcSermonCount(8); setCalcShortsPerSermon(3); }}
+                    className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-white shadow-2xs text-emerald-700 transition-colors font-bold"
+                  >
+                    중형 (월 8편)
+                  </button>
+                  <button
+                    onClick={() => { setCalcSermonCount(20); setCalcShortsPerSermon(5); }}
+                    className="px-2 py-1 text-[11px] font-semibold rounded-lg hover:bg-white text-[#282622] transition-colors"
+                  >
+                    대형 (월 20편)
+                  </button>
+                </div>
+              </div>
+
+              {/* 슬라이더 컨트롤 영역 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 bg-[#FAF9F5] p-4 rounded-xl border border-[#EAE8E1]">
+                {/* 슬라이더 1: 월 설교 분석 수 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-[#282622] flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                      월간 설교 분석 수량
+                    </span>
+                    <span className="font-mono font-black text-sm text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                      {calcSermonCount} 편
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="40"
+                    value={calcSermonCount}
+                    onChange={(e) => setCalcSermonCount(parseInt(e.target.value) || 1)}
+                    className="w-full accent-emerald-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-[#A5A29B]">
+                    <span>1편 (테스트)</span>
+                    <span>8편 (주일+수요)</span>
+                    <span>40편 (대형 미디어)</span>
+                  </div>
+                </div>
+
+                {/* 슬라이더 2: 설교 1편당 생성할 쇼츠 수 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-[#282622] flex items-center gap-1.5">
+                      <Video className="w-3.5 h-3.5 text-[#DA7756]" />
+                      설교 1편당 쇼츠(숏폼) 영상 생성
+                    </span>
+                    <span className="font-mono font-black text-sm text-[#DA7756] bg-amber-100 px-2.5 py-0.5 rounded-full">
+                      {calcShortsPerSermon} 개 (총 {totalShorts}편)
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    value={calcShortsPerSermon}
+                    onChange={(e) => setCalcShortsPerSermon(parseInt(e.target.value) || 1)}
+                    className="w-full accent-[#DA7756] cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-[#A5A29B]">
+                    <span>1개 (핵심 1편)</span>
+                    <span>3개 (주요 하이라이트)</span>
+                    <span>5개 (풀 쇼츠 패키지)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 비용 견적 결과 카드 그리드 */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {/* 1. 총 생성 쇼츠 */}
+                <div className="p-3.5 rounded-xl border border-[#EAE8E1] bg-white space-y-1">
+                  <span className="text-[11px] text-[#807D77] font-semibold">총 생성 쇼츠 수</span>
+                  <div className="text-xl font-black text-[#282622]">
+                    {totalShorts} <span className="text-xs font-normal text-[#807D77]">편 / 월</span>
+                  </div>
+                  <p className="text-[10px] text-[#A5A29B]">설교 {calcSermonCount}편 × {calcShortsPerSermon}개</p>
+                </div>
+
+                {/* 2. 주거용 프록시 트래픽 */}
+                <div className="p-3.5 rounded-xl border border-[#EAE8E1] bg-white space-y-1">
+                  <span className="text-[11px] text-[#807D77] font-semibold">예상 프록시 데이터</span>
+                  <div className="text-xl font-black text-[#DA7756]">
+                    {totalProxyMB < 1000 ? `${Math.round(totalProxyMB)} MB` : `${totalProxyGB.toFixed(2)} GB`}
+                  </div>
+                  <p className="text-[10px] text-emerald-600 font-semibold">1GB 대비 {Math.min(100, Math.round(totalProxyGB * 100))}% 사용</p>
+                </div>
+
+                {/* 3. 프록시 실구매 비용 */}
+                <div className="p-3.5 rounded-xl border border-[#EAE8E1] bg-white space-y-1">
+                  <span className="text-[11px] text-[#807D77] font-semibold">프록시 데이터 비용</span>
+                  <div className="text-xl font-black text-amber-700">
+                    약 {proxyCostKRW.toLocaleString()}원
+                  </div>
+                  <p className="text-[10px] text-[#807D77]">ThorData (${proxyCostUSD})</p>
+                </div>
+
+                {/* 4. 총 예상 월 운영비 */}
+                <div className="p-3.5 rounded-xl border-2 border-emerald-500 bg-emerald-50/50 space-y-1">
+                  <span className="text-[11px] text-emerald-800 font-bold">최종 월간 예상 비용</span>
+                  <div className="text-xl font-black text-emerald-700">
+                    약 {proxyCostKRW.toLocaleString()}원
+                  </div>
+                  <p className="text-[10px] text-emerald-600 font-bold">✨ 서버/AI 요금 0원 무료</p>
+                </div>
+              </div>
+
+              {/* 비용 결론 요약 배너 */}
+              <div className="p-4 rounded-xl bg-[#FAF9F5] border border-[#EAE8E1] text-xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>
+                    결론: 매월 <strong>설교 {calcSermonCount}편</strong>을 분석하고 <strong>쇼츠 {totalShorts}편</strong>을 제작해도 실비용은 <strong>월 약 {proxyCostKRW.toLocaleString()}원</strong> 수준입니다!
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#66635E] pt-1">
+                  <div>• <strong>Gemini AI</strong>: 무료 티어 키(ai-sermon) 사용으로 <strong>0원</strong></div>
+                  <div>• <strong>Cloud Run</strong>: 월 200만 요청 / 36만초 무료 범위 내 <strong>0원</strong></div>
+                  <div>• <strong>Firebase Storage</strong>: 7일 자동 삭제로 5GB 무료 한도 내 <strong>0원</strong></div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. 설교 분석 워크플로우 & 단계별 과금 상세 */}
+            <div className="bg-white rounded-2xl border border-[#EAE8E1] p-6 space-y-5">
+              <div className="flex items-center gap-2.5 border-b border-[#EAE8E1] pb-4">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#282622]">
+                    [워크플로우 1] 설교 분석 파이프라인 및 단계별 과금 명세
+                  </h3>
+                  <p className="text-xs text-[#807D77]">
+                    유튜브 설교 링크 입력부터 5대 쇼츠 구간 및 카드뉴스 도출까지의 세부 동작과 비용
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1단계: 자막 추출 */}
+                <div className="p-4 rounded-xl border border-[#EAE8E1] bg-[#FAF9F5] space-y-2.5 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-bold">
+                      1단계: 자막 추출
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-600">약 0.07원</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-[#282622]">유튜브 메타 및 자막 경량 다운로드</h4>
+                  <p className="text-xs text-[#807D77] leading-relaxed">
+                    • 수백 MB짜리 영상을 받지 않고, <strong>자막 텍스트(약 20~30KB)만 초경량 추출</strong>합니다.<br />
+                    • GCP 서버 IP 차단을 막기 위해 <strong>ThorData 주거용 프록시</strong>를 경유합니다.
+                  </p>
+                  <div className="pt-2 border-t border-[#EAE8E1] text-[10px] text-[#A5A29B] space-y-0.5">
+                    <div>소요 시간: 약 3~5초</div>
+                    <div>데이터 소모: 약 30KB (1GB의 0.003%)</div>
+                  </div>
+                </div>
+
+                {/* 2단계: AI 분석 */}
+                <div className="p-4 rounded-xl border border-[#EAE8E1] bg-[#FAF9F5] space-y-2.5 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-bold">
+                      2단계: AI 심층 분석
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-600">현재 0원 (무료 티어)</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-[#282622]">Gemini 3.8 Flash 설교 분해</h4>
+                  <p className="text-xs text-[#807D77] leading-relaxed">
+                    • 1시간 설교 텍스트에서 <strong>5대 핵심 쇼츠 구간(시작~끝 타임스탬프)</strong>, 정확한 자막 대본, 5일 묵상글, 카드뉴스를 1회 호출로 모두 추출합니다.
+                  </p>
+                  <div className="pt-2 border-t border-[#EAE8E1] text-[10px] text-[#A5A29B] space-y-0.5">
+                    <div>소요 시간: 약 20~30초</div>
+                    <div>유료 전환 시: 편당 약 4원 (현재 무료)</div>
+                  </div>
+                </div>
+
+                {/* 3단계: 3중 캐시 보관 */}
+                <div className="p-4 rounded-xl border border-[#EAE8E1] bg-[#FAF9F5] space-y-2.5 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                      3단계: 3중 영구 보관
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-600">완전 무료 (0원)</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-[#282622]">비디오 ID 기준 캐싱 & 0초 열기</h4>
+                  <p className="text-xs text-[#807D77] leading-relaxed">
+                    • <strong>브라우저 로컬 + 서버 디스크 + Firestore</strong> 3중 보관합니다.<br />
+                    • 이전에 분석한 영상은 AI 재호출 없이 <strong>0.01초 만에 즉시 열리며 과금 0원</strong>입니다.
+                  </p>
+                  <div className="pt-2 border-t border-[#EAE8E1] text-[10px] text-[#A5A29B] space-y-0.5">
+                    <div>재분석 시 소요 시간: 0.01초 즉시 로딩</div>
+                    <div>Firestore 무료 할당량 내 완전 무료</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 설교 분석 요약 뱃지 */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between text-xs">
+                <span className="font-bold text-blue-900">👉 설교 1편당 분석 총비용: 약 0.07원 (실질적 0원, 월 100편 분석해도 약 7원)</span>
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-200/80 text-blue-900">거의 0원에 수렴</span>
+              </div>
+            </div>
+
+            {/* 3. 숏폼(쇼츠) 렌더링 워크플로우 & 단계별 과금 상세 */}
+            <div className="bg-white rounded-2xl border border-[#EAE8E1] p-6 space-y-5">
+              <div className="flex items-center gap-2.5 border-b border-[#EAE8E1] pb-4">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                  <Video className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#282622]">
+                    [워크플로우 2] 숏폼(쇼츠) 렌더링 파이프라인 및 단계별 과금 명세
+                  </h3>
+                  <p className="text-xs text-[#807D77]">
+                    쇼츠 생성 클릭부터 9:16 인코딩 완료 및 다운로드 제공까지의 세부 동작과 비용
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1단계: 하이라이트 구간만 스트리밍 추출 */}
+                <div className="p-4 rounded-xl border border-[#EAE8E1] bg-[#FAF9F5] space-y-2.5 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                      1단계: 구간 클립 추출
+                    </span>
+                    <span className="text-[11px] font-bold text-amber-700">약 48원 / 편</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-[#282622]">30~50초 하이라이트 구간만 추출</h4>
+                  <p className="text-xs text-[#807D77] leading-relaxed">
+                    • 1시간짜리 전체 영상을 받지 않고, AI가 선별한 <strong>필요 구간(약 15~20MB)만 HTTP Range로 직접 절단 다운로드</strong>합니다.<br />
+                    • 주거용 프록시 경유로 403 차단 없이 안전하게 취득합니다.
+                  </p>
+                  <div className="pt-2 border-t border-[#EAE8E1] text-[10px] text-[#A5A29B] space-y-0.5">
+                    <div>소요 시간: 약 8~15초</div>
+                    <div>데이터 소모: 편당 약 20MB (1GB로 50편 제작)</div>
+                  </div>
+                </div>
+
+                {/* 2단계: FFmpeg 렌더링 */}
+                <div className="p-4 rounded-xl border border-[#EAE8E1] bg-[#FAF9F5] space-y-2.5 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                      2단계: 고화질 인코딩
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-600">무료 할당량 내 0원</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-[#282622]">Cloud Run 직결 FFmpeg 렌더링</h4>
+                  <p className="text-xs text-[#807D77] leading-relaxed">
+                    • <strong>브라우저 커넥션을 유지하여 CPU 100% 가동</strong>합니다.<br />
+                    • 7대 템플릿(와이드/옐로우/풀스크린)에 맞춰 9:16 세로 화면 구성, 2줄 헤더, 한글 자막 번인, CCM 피아노 BGM 오디오 더킹을 적용합니다.
+                  </p>
+                  <div className="pt-2 border-t border-[#EAE8E1] text-[10px] text-[#A5A29B] space-y-0.5">
+                    <div>인코딩 소요 시간: 약 15~25초</div>
+                    <div>Cloud Run 매월 36만초 무료 범위 내 0원</div>
+                  </div>
+                </div>
+
+                {/* 3단계: 임시 보관 및 자동 삭제 */}
+                <div className="p-4 rounded-xl border border-[#EAE8E1] bg-[#FAF9F5] space-y-2.5 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-bold">
+                      3단계: 배포 & 자동 삭제
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-600">완전 무료 (0원)</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-[#282622]">Firebase Storage CDN 배포</h4>
+                  <p className="text-xs text-[#807D77] leading-relaxed">
+                    • 완성된 쇼츠(약 4~8MB)를 Firebase Storage에 업로드하여 즉시 재생 및 다운로드 링크를 제공합니다.<br />
+                    • <strong>7일 자동 삭제 수명주기</strong>를 적용하여 누적 스토리지 비용을 100% 차단합니다.
+                  </p>
+                  <div className="pt-2 border-t border-[#EAE8E1] text-[10px] text-[#A5A29B] space-y-0.5">
+                    <div>임시 원본 비디오: 즉시 삭제 (OOM 차단)</div>
+                    <div>Storage 무료 5GB 범위 내 완전 무료</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 숏폼 렌더링 요약 뱃지 */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs">
+                <span className="font-bold text-amber-900">
+                  👉 쇼츠 1편당 생성 비용: 약 48원 (프록시 트래픽비) · 설교 1편에서 5편 전체 생성 시 약 240원
+                </span>
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-200/80 text-amber-900">
+                  1GB($1.80)로 약 50편 제작
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 탭 2: 기존 인프라 아키텍처 · 주거용 프록시 정보 */}
       {activeTab === 'infra' && (
         <div className="space-y-6 animate-fadeIn">
           {/* 1. 구글 클라우드 Cloud Run & 앱 프로젝트 정보 */}
