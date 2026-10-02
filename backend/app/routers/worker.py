@@ -50,19 +50,7 @@ async def render_worker(req: Request):
 
         effective_yt_url = job.get("youtube_url")
         if not effective_yt_url or ("youtube" not in effective_yt_url and "youtu.be" not in effective_yt_url):
-            cache_dir = OUTPUTS_DIR / "cache"
-            if cache_dir.exists():
-                for c_file in sorted(cache_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True):
-                    try:
-                        import json
-                        c_data = json.loads(c_file.read_text(encoding="utf-8"))
-                        candidate_url = c_data.get("metadata", {}).get("youtube_url")
-                        if candidate_url and ("youtube" in candidate_url or "youtu.be" in candidate_url):
-                            effective_yt_url = candidate_url
-                            update_job({"youtube_url": candidate_url})
-                            break
-                    except Exception:
-                        pass
+            raise RuntimeError("쇼츠 렌더링에 필요한 유튜브 원본 URL이 누락되었습니다. 작업을 다시 요청해주세요.")
         
         loop = asyncio.get_event_loop()
         
