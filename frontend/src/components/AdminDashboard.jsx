@@ -326,10 +326,10 @@ export default function AdminDashboard({ currentUser }) {
                   <tr>
                     <td className="py-2.5 px-3 font-bold bg-[#FAF9F5]/40">Gemini AI 분석 (api-sermon)</td>
                     <td className="py-2.5 px-3 text-[#807D77]">
-                      Gemini 2.5 Flash 상용 API 요율 (입력 100만 토큰당 $0.15)
+                      Gemini 3.5/3.8 Flash 입력 100만 토큰당 약 100원
                     </td>
                     <td className="py-2.5 px-3 text-[#807D77]">
-                      <strong>프로젝트 sermon (키: ai-sermon) 무료 티어</strong> 사용 + 중복 URL <strong>캐시 방어</strong>
+                      <strong>초고속 3중 병렬 처리(속도 10배↑)</strong>로 입력 비용이 3배 늘었으나, 1편당 <strong>3~4원</strong> 수준으로 극히 미미
                     </td>
                     <td className="py-2.5 px-3 font-black text-emerald-600">
                       <strong>현재 0원 (무료 티어 내 운영)</strong>

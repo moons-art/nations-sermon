@@ -118,9 +118,7 @@ async def analyze_sermon_video(
 - 절대 내용을 상상하거나 지어내지 마세요.
 - 반드시 동봉된 유튜브 영상({normalized_url})에서 설교자가 실제로 발언한 음성만을 그대로 받아적어 실제 타임스탬프([MM:SS])와 함께 추출하세요. 가짜 내용 생성은 엄격히 금지됩니다."""
 
-    prompt = f"""당신은 한국 설교 미디어 전문가입니다.
-아래 유튜브 설교 영상을 분석하여 JSON을 반환하세요.
-
+    prompt_shorts = f"""당신은 한국 설교 미디어 전문가입니다. 아래 유튜브 설교 영상을 분석하여 JSON을 반환하세요.
 [영상 정보]
 - URL: {normalized_url}
 - 제목: {title}
@@ -132,80 +130,39 @@ async def analyze_sermon_video(
 {anti_hallucination_rule}
 
 반드시 아래 규칙을 지켜주세요:
-1. [가장 중요 - 감동적인 하이라이트와 온전한 문장 마무리]:
-   - 실제 타임스탬프([MM:SS])를 기반으로 성도들에게 가장 큰 감동과 울림을 주는 핵심 하이라이트 5구간을 선정하세요.
-   - 각 쇼츠의 길이는 30초 ~ 60초 (1분 이내) 사이로 자유롭게 설정하되, 메시지의 감동을 온전히 전달하는 데 집중하세요.
-   - [필수 규칙 - 말끝 끊김 절대 금지]: 영상의 끝부분(endTime)은 목사님이 말씀을 하다가 도중에 잘리거나 어색하게 끊기지 않고, 하나의 온전한 감동적인 문장이나 선포("~합시다", "~바랍니다", "~믿습니다", "~아멘", "~역사가 일어납니다")로 확실하고 은혜롭게 마침표를 찍으며 끝나는 지점으로 정확히 잡아야 합니다.
-2. sentences 배열에는 해당 구간의 실제 발언 문장들을 timestamps와 함께 담되, 마지막 문장까지 온전하게 종결되어야 합니다.
-3. 설교 제목, 본문 구절, 설교자명을 실제 내용에서 추출하세요.
-4. sermonText에 설교 전체를 자연스러운 설교문 형태로 재구성하여 담으세요 (설교 도입부~결론 전체).
-5. [쇼츠 영상 타이틀 규칙 (매우 중요)]:
-   - 길고 장황한 설명문("~할까요?", "~마음에서 시작됩니다") 금지!
-   - [필수 규칙 - 소제목 스타일 다채롭게 작성 (vs 대조 반복 절대 금지)]:
-     * 5개의 쇼츠 소제목(title_answer)이 모두 천편일률적으로 "A vs B" 대조 형태가 되지 않도록 반드시 다양하고 매력적인 화법을 골고루 섞어 작성하세요.
-     * 스타일 예시:
-       1) 호기심/비밀 유발형: "그들이 끝까지 숨겼던 비밀", "주님이 확인하시는 단 한 가지"
-       2) 통찰/반전형: "열심보다 먼저 회복되어야 할 것", "포기한 순간 시작된 역사"
-       3) 결단/울림형: "믿음의 자리에 서는 용기", "흔들리지 않는 영적 권세"
-       4) 대조형 (5개 중 최대 1~2개만): "의무감 vs 사랑의 갈망"
-   - title_question (상단 1줄 제목): 8~14자 내외의 짧고 강렬한 핵심 화두 (예: "표정이 다른 이유", "예수님을 따르는 진짜 힘", "인생의 밤을 지날 때")
-   - title_answer (상단 2줄 소제목): 8~15자 내외의 다채롭고 매력적인 문구
-6. 한국어로 모든 내용 작성.
+1. 실제 타임스탬프([MM:SS])를 기반으로 가장 큰 감동을 주는 5구간(쇼츠)을 선정. (말끝 끊김 절대 금지)
+2. sentences 배열에는 온전하게 종결된 실제 발언 문장과 timestamps 포함.
+3. 설교 제목, 본문, 설교자명 추출 및 sermonText에 설교문 전체 재구성.
+4. 쇼츠 타이틀(title_question, title_answer)을 창의적이고 다채롭게 작성.
 
-다음 JSON 구조를 반드시 그대로 반환하세요 (코드블록 없이 순수 JSON만):
+순수 JSON만 반환 (코드블록 제외):
 {{
-  "metadata": {{
-    "title": "설교 제목",
-    "preacher": "설교자 이름",
-    "passage": "성경 본문 구절",
-    "churchName": "교회/채널 이름",
-    "publishedAt": "날짜 (알 수 있으면)",
-    "videoDuration": "{duration_str}"
-  }},
-  "sermonText": "전체 설교문 (도입부부터 결론까지 자연스러운 문체로 정리. 최소 1000자 이상)",
+  "metadata": {{"title": "...", "preacher": "...", "passage": "...", "churchName": "...", "publishedAt": "...", "videoDuration": "{duration_str}"}},
+  "sermonText": "전체 설교문",
   "shorts": [
-    {{
-      "id": "short-1",
-      "title": "쇼츠 제목 (예: 예수님을 따르는 진짜 힘)",
-      "title_question": "짧은 상단 제목 (예: 예수님을 따르는 진짜 힘)",
-      "title_answer": "짧은 하이라이트 소제목 (예: 의무감이 아니라 이것)",
-      "startTime": "MM:SS",
-      "endTime": "MM:SS",
-      "duration": "N초",
-      "hook": "시청자를 끌어당기는 한 줄 후크",
-      "summary": "이 구간 핵심 요약 2~3문장",
-      "sentences": [
-        {{"id": 1, "start": "MM:SS", "end": "MM:SS", "text": "실제 발언 문장"}}
-      ]
-    }}
-  ],
+    {{"id": "short-1", "title": "...", "title_question": "...", "title_answer": "...", "startTime": "MM:SS", "endTime": "MM:SS", "duration": "N초", "hook": "...", "summary": "...", "sentences": [{{"id": 1, "start": "MM:SS", "end": "MM:SS", "text": "..."}}]}}
+  ]
+}}"""
+
+    prompt_meditations = f"""{transcript_section}
+위 설교 내용을 바탕으로 5일치 묵상(meditations) 데이터를 JSON으로 반환하세요.
+순수 JSON만 반환 (코드블록 제외):
+{{
   "meditations": [
-    {{
-      "day": 1,
-      "dayName": "월요일",
-      "theme": "묵상 주제",
-      "bibleVerse": "성경 구절",
-      "content": "묵상 내용 3~4문장",
-      "question": "묵상 질문",
-      "application": "오늘의 적용",
-      "closingPrayer": "마치는 기도"
-    }}
-  ],
+    {{"day": 1, "dayName": "월요일", "theme": "...", "bibleVerse": "...", "content": "...", "question": "...", "application": "...", "closingPrayer": "..."}}
+  ]
+}}"""
+
+    prompt_cardnews = f"""{transcript_section}
+위 설교 내용을 바탕으로 카드뉴스 텍스트를 JSON으로 반환하세요. (주일 설교 요약 7장, 5일치 데일리 묵상 각 4장)
+순수 JSON만 반환 (코드블록 제외):
+{{
   "sermonCardNews": [
-    {{"id": 1, "type": "cover", "tag": "주일 설교 요약", "title": "설교 제목", "subtitle": "설교 부제", "passage": "본문", "speaker": "설교자", "church": "교회명"}},
-    {{"id": 2, "type": "content", "tag": "Point 01", "title": "핵심 포인트", "body": "내용"}},
-    {{"id": 3, "type": "content", "tag": "Point 02", "title": "핵심 포인트", "body": "내용"}},
-    {{"id": 4, "type": "content", "tag": "Point 03", "title": "핵심 포인트", "body": "내용"}},
-    {{"id": 5, "type": "content", "tag": "Point 04", "title": "핵심 포인트", "body": "내용"}},
-    {{"id": 6, "type": "content", "tag": "Point 05", "title": "핵심 포인트", "body": "내용"}},
-    {{"id": 7, "type": "closing", "tag": "결단과 기도", "title": "오늘의 믿음 결단", "body": "기도문", "church": "교회명"}}
+    {{"id": 1, "type": "cover", "tag": "...", "title": "...", "subtitle": "...", "passage": "...", "speaker": "...", "church": "..."}},
+    {{"id": 2, "type": "content", "tag": "...", "title": "...", "body": "..."}}
   ],
   "dailyCardNewsSets": {{
-    "1": [{{"id": 1, "type": "cover", "tag": "Day 1 묵상", "title": "...", "passage": "...", "church": "..."}}, {{"id": 2, "type": "content", "tag": "말씀 묵상", "title": "...", "body": "..."}}, {{"id": 3, "type": "content", "tag": "삶의 적용", "title": "...", "body": "..."}}, {{"id": 4, "type": "closing", "tag": "마치는 기도", "title": "...", "body": "...", "church": "..."}}],
-    "2": [{{"id": 1, "type": "cover", "tag": "Day 2 묵상", "title": "...", "passage": "...", "church": "..."}}, {{"id": 2, "type": "content", "tag": "말씀 묵상", "title": "...", "body": "..."}}, {{"id": 3, "type": "content", "tag": "삶의 적용", "title": "...", "body": "..."}}, {{"id": 4, "type": "closing", "tag": "마치는 기도", "title": "...", "body": "...", "church": "..."}}],
-    "3": [{{"id": 1, "type": "cover", "tag": "Day 3 묵상", "title": "...", "passage": "...", "church": "..."}}, {{"id": 2, "type": "content", "tag": "말씀 묵상", "title": "...", "body": "..."}}, {{"id": 3, "type": "content", "tag": "삶의 적용", "title": "...", "body": "..."}}, {{"id": 4, "type": "closing", "tag": "마치는 기도", "title": "...", "body": "...", "church": "..."}}],
-    "4": [{{"id": 1, "type": "cover", "tag": "Day 4 묵상", "title": "...", "passage": "...", "church": "..."}}, {{"id": 2, "type": "content", "tag": "말씀 묵상", "title": "...", "body": "..."}}, {{"id": 3, "type": "content", "tag": "삶의 적용", "title": "...", "body": "..."}}, {{"id": 4, "type": "closing", "tag": "마치는 기도", "title": "...", "body": "...", "church": "..."}}],
-    "5": [{{"id": 1, "type": "cover", "tag": "Day 5 묵상", "title": "...", "passage": "...", "church": "..."}}, {{"id": 2, "type": "content", "tag": "말씀 묵상", "title": "...", "body": "..."}}, {{"id": 3, "type": "content", "tag": "삶의 적용", "title": "...", "body": "..."}}, {{"id": 4, "type": "closing", "tag": "마치는 기도", "title": "...", "body": "...", "church": "..."}}]
+    "1": [{{"id": 1, "type": "cover", "tag": "Day 1", "title": "...", "passage": "...", "church": "..."}}]
   }}
 }}"""
     from google import genai
@@ -218,39 +175,54 @@ async def analyze_sermon_video(
         media_resolution="MEDIA_RESOLUTION_LOW"  # 1시간 이상 긴 영상 처리 최적화
     )
     
-    # 자막이 없는 경우 구글 내부망 멀티모달 분석을 위해 정규화된 watch?v= URL 전달
-    if has_transcript:
-        contents_payload = prompt
-    else:
+    def build_payload(prompt_text):
+        if has_transcript:
+            return prompt_text
         part = types.Part.from_uri(file_uri=normalized_url, mime_type="video/mp4")
-        contents_payload = [part, prompt]
+        return [part, prompt_text]
 
-    last_error = None
-    for model_name in MAIN_ENGINE_MODELS:
-        try:
-            logger.info(f"Gemini 메인 엔진 모델 시도: {model_name} (직접 분석={not has_transcript})")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents_payload,
-                config=gen_config
-            )
-            # response.text가 None인 경우 (MAX_TOKENS 등) 다음 모델로 폴백
-            if not response.text:
-                logger.warning(f"빈 응답 ({model_name}): finish_reason={response.candidates[0].finish_reason if response.candidates else 'unknown'}")
-                last_error = ValueError(f"빈 응답 ({model_name})")
-                continue
-            response_text = response.text.strip()
-            # 코드블록 제거
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            elif response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-            response_text = response_text.strip()
+    async def call_gemini(payload, delay=0):
+        if delay:
+            await asyncio.sleep(delay)
             
-            parsed = json.loads(response_text)
-            logger.info(f"AI 분석 성공 ({model_name}): shorts {len(parsed.get('shorts', []))}개")
+        last_err = None
+        for model_name in MAIN_ENGINE_MODELS:
+            try:
+                # 동기 클라이언트를 스레드풀에서 실행하여 이벤트루프 블로킹 방지
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model_name,
+                    contents=payload,
+                    config=gen_config
+                )
+                if not response.text:
+                    last_err = ValueError("빈 응답")
+                    continue
+                rt = response.text.strip()
+                if rt.startswith("```json"): rt = rt[7:]
+                elif rt.startswith("```"): rt = rt[3:]
+                if rt.endswith("```"): rt = rt[:-3]
+                return json.loads(rt.strip())
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ["503", "429", "timeout"]):
+                    await asyncio.sleep(2)
+                    continue
+                last_err = e
+        raise last_err or ValueError("모든 모델 실패")
+
+    # [핵심] 3개의 프롬프트를 약간의 시차를 두고 병렬 호출하여 429 에러 완벽 방어 및 속도 극대화
+    try:
+        logger.info("⚡ 3중 병렬 AI 분석 시작 (Shorts, Meditations, CardNews)")
+        res_shorts, res_meditations, res_cardnews = await asyncio.gather(
+            call_gemini(build_payload(prompt_shorts), delay=0.0),
+            call_gemini(build_payload(prompt_meditations), delay=1.5),
+            call_gemini(build_payload(prompt_cardnews), delay=3.0)
+        )
+        
+        # 3개의 JSON 결과를 하나로 병합
+        parsed = {**res_shorts, **res_meditations, **res_cardnews}
+        logger.info(f"✅ AI 병렬 분석 완료: shorts {len(parsed.get('shorts', []))}개")
             
             # 메타데이터 보완
             if "metadata" not in parsed:
@@ -304,26 +276,17 @@ async def analyze_sermon_video(
 
             return parsed
             
-        except json.JSONDecodeError as e:
-            logger.warning(f"JSON 파싱 실패 ({model_name}): {e}")
-            last_error = e
-            continue
         except Exception as e:
-            err_str = str(e).lower()
-            logger.warning(f"AI 분석 오류 발생 ({model_name}): {e}")
-            last_error = e
-            # 503 (과부하), 429 (레이트리밋), 404/not found, timeout 등 일시적/모델 오류 시 다음 후보 모델로 시도
-            if any(k in err_str for k in ["503", "unavailable", "high demand", "429", "resource_exhausted", "not found", "404", "invalid", "timeout"]):
-                logger.info(f"모델 {model_name} 과부하 또는 오류로 인해 다음 모델로 전환합니다.")
-                continue
-            break
-    
-    # 모든 모델 실패 → 예외 발생 (가짜 데이터 반환 없음)
-    raise RuntimeError(
-        f"AI 설교 분석에 실패했습니다.\n"
-        f"마지막 오류: {str(last_error)}\n"
-        f"Gemini API 키를 확인하거나 잠시 후 다시 시도해주세요."
-    )
+            logger.warning(f"JSON 병합 실패 또는 파싱 실패: {e}")
+            raise RuntimeError(f"AI 분석 결과 병합 실패: {e}")
+
+    except Exception as e:
+        logger.warning(f"AI 병렬 분석 실패: {e}")
+        raise RuntimeError(
+            f"AI 설교 병렬 분석에 실패했습니다.\n"
+            f"마지막 오류: {str(e)}\n"
+            f"Gemini API 키를 확인하거나 잠시 후 다시 시도해주세요."
+        )
 
 
 async def complete_sermon_draft(idea_text: str, tone_profile: str = "", custom_api_key: Optional[str] = None) -> str:
