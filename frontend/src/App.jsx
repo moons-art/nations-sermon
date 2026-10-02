@@ -16,6 +16,22 @@ const BASE_URL = import.meta.env.VITE_API_URL !== undefined
   ? import.meta.env.VITE_API_URL 
   : (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
+export const extractVideoId = (url) => {
+  if (!url) return '';
+  const patterns = [
+    /(?:v=)([0-9A-Za-z_-]{11})/,
+    /youtu\.be\/([0-9A-Za-z_-]{11})/,
+    /youtube\.com\/shorts\/([0-9A-Za-z_-]{11})/,
+    /youtube\.com\/live\/([0-9A-Za-z_-]{11})/,
+    /(?:embed\/)([0-9A-Za-z_-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return '';
+};
+
 export default function App() {
   const { currentUser, userLoading, logout } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -200,8 +216,32 @@ export default function App() {
     });
   };
 
-  // 유튜브 직통 동기 분석 시작 함수 (안정적인 직통 API 방식)
-  const startAnalysis = async (ytUrl, geminiApiKey) => {
+  // 유튜브 직통 동기 분석 시작 함수 (기기 보관함 즉시 확인 + 안정적인 직통 API 방식)
+  const startAnalysis = async (ytUrl, geminiApiKey, forceRefresh = false) => {
+    const inputVid = extractVideoId(ytUrl);
+
+    // [0초 즉시 로딩] 1. 기기 설교 보관함(sermonHistory)에 이미 존재하는지 우선 확인!
+    if (!forceRefresh && inputVid) {
+      const localMatch = sermonHistory.find((item) => {
+        const itemVid = extractVideoId(item.url) || item.data?.metadata?.video_id;
+        return itemVid === inputVid && item.data && item.data.shorts;
+      });
+
+      if (localMatch) {
+        setYoutubeUrl(localMatch.url || ytUrl);
+        setSermonData(localMatch.data);
+        setActiveTab('sermon_view');
+        return;
+      }
+    }
+
+    // [0초 즉시 로딩] 2. 현재 메모리에 로드된 sermonData가 동일 영상인 경우
+    if (!forceRefresh && inputVid && sermonData?.metadata?.video_id === inputVid) {
+      setYoutubeUrl(ytUrl);
+      setActiveTab('sermon_view');
+      return;
+    }
+
     setYoutubeUrl(ytUrl);
     try {
       localStorage.setItem('last_youtube_url', ytUrl);
@@ -217,7 +257,7 @@ export default function App() {
     });
 
     try {
-      const data = await analyzeSermonUrl(ytUrl, geminiApiKey || '');
+      const data = await analyzeSermonUrl(ytUrl, geminiApiKey || '', forceRefresh);
       setSermonData(data);
       addSermonToHistory(data, ytUrl);
       setCardNotice('done');

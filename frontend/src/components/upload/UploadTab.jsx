@@ -43,6 +43,32 @@ export default function UploadTab({
   const [ytInput, setYtInput] = useState('');
   const [historySearch, setHistorySearch] = useState('');
 
+  // 유튜브 URL에서 비디오 ID 추출 헬퍼
+  const extractVideoId = (url) => {
+    if (!url) return '';
+    const patterns = [
+      /(?:v=)([0-9A-Za-z_-]{11})/,
+      /youtu\.be\/([0-9A-Za-z_-]{11})/,
+      /youtube\.com\/shorts\/([0-9A-Za-z_-]{11})/,
+      /youtube\.com\/live\/([0-9A-Za-z_-]{11})/,
+      /(?:embed\/)([0-9A-Za-z_-]{11})/,
+    ];
+    for (const p of patterns) {
+      const m = url.match(p);
+      if (m) return m[1];
+    }
+    return '';
+  };
+
+  const currentInputVid = extractVideoId(ytInput);
+  const matchedHistoryItem = currentInputVid
+    ? sermonHistory.find(
+        (item) =>
+          extractVideoId(item.url) === currentInputVid ||
+          item.data?.metadata?.video_id === currentInputVid
+      )
+    : null;
+
   // 유튜브 분석 경과시간은 App 레벨 analysisState.elapsed 사용
   // (다른 탭 이동 후 돌아와도 경과 시간 유지)
 
@@ -297,6 +323,21 @@ export default function UploadTab({
               />
             </div>
 
+            {/* 이미 분석된 영상 감지 배너 */}
+            {matchedHistoryItem && !isYtAnalyzing && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 animate-fadeIn">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 animate-ping"></span>
+                  <p className="text-xs text-emerald-900 truncate">
+                    <strong>기기에 분석 결과가 보관된 설교입니다:</strong> &ldquo;{matchedHistoryItem.title}&rdquo;
+                  </p>
+                </div>
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 font-bold whitespace-nowrap">
+                  기기 보관중 (0초 즉시 열기)
+                </span>
+              </div>
+            )}
+
             {/* 실시간 진행 상태 박스 */}
             {isYtAnalyzing && (
               <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200/90 text-xs space-y-2.5 animate-fadeIn">
@@ -347,16 +388,37 @@ export default function UploadTab({
               </div>
             )}
 
-            <div className="flex items-center justify-end pt-1">
+            <div className="flex items-center justify-between pt-1">
+              {matchedHistoryItem && !isYtAnalyzing ? (
+                <button
+                  type="button"
+                  onClick={() => onStartAnalysis?.(ytInput, apiKey, true)}
+                  className="text-[11px] text-[#807D77] hover:text-[#282622] underline cursor-pointer"
+                  title="기존 캐시를 무시하고 처음부터 다시 분석합니다"
+                >
+                  새로 다시 분석하기 &rarr;
+                </button>
+              ) : <div />}
+
               <button
                 type="submit"
                 disabled={isYtAnalyzing || !ytInput.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#282622] hover:bg-[#1E1D1A] text-white text-xs font-semibold disabled:opacity-50 transition-colors shadow-xs"
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-semibold disabled:opacity-50 transition-colors shadow-xs cursor-pointer ${
+                  matchedHistoryItem && !isYtAnalyzing
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-[#282622] hover:bg-[#1E1D1A]'
+                }`}
               >
                 {isYtAnalyzing ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>분석 중 ({ytElapsed}초)...</span>
+                  </>
+                ) : matchedHistoryItem ? (
+                  <>
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>보관된 분석 결과 즉시 열기 (0초)</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 ) : (
                   <>
@@ -466,7 +528,9 @@ export default function UploadTab({
                   .map((item) => (
                     <div
                       key={item.id}
-                      className="p-3 bg-[#FAF9F5] border border-[#E0DED7] hover:border-[#DA7756] rounded-xl flex items-start justify-between gap-3 transition-all hover:shadow-xs group relative"
+                      onClick={() => onSelectHistory?.(item)}
+                      className="p-3 bg-[#FAF9F5] border border-[#E0DED7] hover:border-[#DA7756] rounded-xl flex items-start justify-between gap-3 transition-all hover:shadow-xs group relative cursor-pointer"
+                      title="클릭하여 저장된 분석 결과 즉시 열기 (0초)"
                     >
                       <div className="flex items-start gap-2.5 min-w-0 flex-1">
                         {item.thumbnail ? (
@@ -482,7 +546,7 @@ export default function UploadTab({
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-semibold text-[#282622] truncate leading-tight">
+                            <p className="text-xs font-semibold text-[#282622] truncate leading-tight group-hover:text-[#DA7756] transition-colors">
                               {item.title}
                             </p>
                             {item.isNew && (
@@ -501,7 +565,10 @@ export default function UploadTab({
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                           type="button"
-                          onClick={() => onSelectHistory?.(item)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectHistory?.(item);
+                          }}
                           className="px-2.5 py-1 rounded-lg bg-[#DA7756] hover:bg-[#C56545] text-white text-[11px] font-semibold transition-colors cursor-pointer"
                           title="열어서 확인 및 숏폼 제작"
                         >
@@ -509,12 +576,13 @@ export default function UploadTab({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if (window.confirm(`'${item.title}' 설교 기록을 삭제하시겠습니까?`)) {
                               onDeleteHistory?.(item.id);
                             }
                           }}
-                          className="p-1 text-[#A5A29B] hover:text-red-500 rounded-md transition-colors"
+                          className="p-1 text-[#A5A29B] hover:text-red-500 rounded-md transition-colors cursor-pointer"
                           title="기록에서 삭제"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
