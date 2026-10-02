@@ -332,7 +332,7 @@ def render_short_video_with_pillow_overlay(
         # 투명 미니멀: 블러 처리된 영상 배경 위에 중앙 영상 오버레이
         base_vfilter = (
             "[0:v]split=2[v_bg_in][v_fg_in];"
-            "[v_bg_in]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5,eq=brightness=-0.15[bg];"
+            "[v_bg_in]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=10:2,eq=brightness=-0.15[bg];"
             "[v_fg_in]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2[v_base]"
         )
@@ -431,7 +431,7 @@ def render_short_video_with_pillow_overlay(
 
     cmd.extend([
         "-c:v", "libx264",
-        "-preset", "faster",
+        "-preset", "ultrafast",
         "-crf", "20",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
