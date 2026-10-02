@@ -16,17 +16,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/worker", tags=["Worker"])
 
-@router.post("/render")
-async def render_worker(req: Request):
-    try:
-        body = await req.json()
-    except:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-        
-    job_id = body.get("job_id")
-    if not job_id:
-        raise HTTPException(status_code=400, detail="job_id is required")
-
+async def execute_render_job(job_id: str) -> Dict[str, Any]:
+    """
+    [선택 B]: 외부 Cloud Tasks 없이 Cloud Run 내부 BackgroundTasks에서 직접 실행 가능한 렌더링 작업
+    """
     job = get_document("render_jobs", job_id)
     if not job:
         logger.error(f"Render job not found in Firestore: {job_id}")
@@ -45,7 +38,7 @@ async def render_worker(req: Request):
     output_video = OUTPUTS_DIR / f"shorts_{job.get('short_id', 'unknown')}_{job_id}.mp4"
 
     try:
-        logger.info(f"🚀 [Cloud Tasks 렌더링 시작] Job ID: {job_id}")
+        logger.info(f"🚀 [쇼츠 렌더링 시작] Job ID: {job_id}")
         update_job({"status": "PROCESSING", "progress": 10, "stage": "영상 소스 준비 중..."})
 
         effective_yt_url = job.get("youtube_url")
@@ -99,13 +92,13 @@ async def render_worker(req: Request):
             "stage": "렌더링 및 업로드 완료!",
             "video_url": final_url
         })
-        logger.info(f"✅ [Cloud Tasks 렌더링 완료] Job ID: {job_id} -> URL: {final_url}")
+        logger.info(f"✅ [쇼츠 렌더링 완료] Job ID: {job_id} -> URL: {final_url}")
+        return {"status": "success", "job_id": job_id, "video_url": final_url}
         
     except Exception as e:
         logger.error(f"❌ [렌더링 실패] Job ID: {job_id}, 에러: {e}", exc_info=True)
         update_job({"status": "FAILED", "error_message": str(e), "stage": f"렌더링 실패: {e}"})
-        if "네트워크" in str(e) or "타임아웃" in str(e):
-            raise HTTPException(status_code=500, detail="Temporary error, retry later")
+        return {"status": "failed", "job_id": job_id, "error": str(e)}
 
     finally:
         if source_video and source_video.exists():
@@ -125,7 +118,18 @@ async def render_worker(req: Request):
             except Exception:
                 pass
 
-    return {"status": "success", "job_id": job_id}
+@router.post("/render")
+async def render_worker(req: Request):
+    try:
+        body = await req.json()
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    job_id = body.get("job_id")
+    if not job_id:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    return await execute_render_job(job_id)
 
 
 @router.post("/analyze")

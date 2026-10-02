@@ -14,7 +14,6 @@ sequenceDiagram
     participant Hosting as Firebase Hosting (CDN)
     participant CloudRun as Cloud Run (API: nations-sermon)
     participant Firestore as Google Cloud Firestore
-    participant CloudTasks as Cloud Tasks (sermon-worker-queue)
     participant YouTube as YouTube / ThorData Proxy
     participant Gemini as Google Gemini API (Flash)
     participant Storage as Firebase Storage (7-Day TTL)
@@ -22,20 +21,19 @@ sequenceDiagram
     User->>Hosting: 1. 유튜브 분석 요청 (POST /api/analyze/start)
     Hosting->>CloudRun: Rewrite 프록시 전달
     CloudRun->>Firestore: task_id 발급 및 상태 'QUEUED' 저장
-    CloudRun->>CloudTasks: 작업 디스패치 등록 (/api/worker/analyze)
-    CloudRun-->>User: 즉시 task_id 반환 (HTTP 200)
+    CloudRun->>CloudRun: 내부 BackgroundTasks 즉시 가동 (외부 Cloud Tasks 의존성 제로)
+    CloudRun-->>User: 즉시 task_id 반환 (0.1초 소요)
 
     par 상태 폴링 및 영속화
         User->>User: localStorage에 task_id 저장 (새로고침 복원 보장)
         loop 2초 간격 폴링
             User->>CloudRun: GET /api/analyze/status/{task_id}
             CloudRun->>Firestore: 작업 진행도(%) 및 단계 조회
-            CloudRun-->>User: 진행 상태 전달
+            CloudRun-->>User: 진행 상태 전달 (1단계: 자막추출, 2단계: AI분석)
         end
-    and Cloud Tasks 비동기 실행 (속도/동시성 제어)
-        CloudTasks->>CloudRun: POST /api/worker/analyze (Rate: 1.0/s, Max Conc: 2)
-        CloudRun->>YouTube: 자막 추출 (GCP IP 차단 방지용 프록시 연동, 20~30KB 소모)
-        CloudRun->>Gemini: 자막 70% 압축 프롬프트 분석 (gemini-3.8-flash -> 3.5-flash)
+    and Cloud Run 서버 내부 백그라운드 직접 실행
+        CloudRun->>YouTube: 자막 추출 (GCP IP 차단 방지용 프록시 연동, 20~30KB 초경량)
+        CloudRun->>Gemini: 자막 70% 압축 프롬프트 분석 (모델당 75초 타임아웃 방어)
         CloudRun->>Firestore: 쇼츠 5구간 & 묵상글 & 카드뉴스 영구 캐시 저장
         CloudRun->>Firestore: task_id 상태 'COMPLETED' 갱신
     end
@@ -43,9 +41,8 @@ sequenceDiagram
     User->>User: 분석 완료 데이터 로컬 렌더링 및 보관함 자동 등록
     
     opt 쇼츠 렌더링 요청
-        User->>CloudRun: POST /api/render/start
-        CloudRun->>CloudTasks: 작업 등록 (/api/worker/render)
-        CloudTasks->>CloudRun: 워커 실행 (동시성 1개씩 격리 실행)
+        User->>CloudRun: POST /api/render/queue
+        CloudRun->>CloudRun: 내부 BackgroundTasks로 즉시 렌더링 시작
         CloudRun->>YouTube: 필요한 30초 구간만 HTTP Range 스트리밍 다운로드 (프록시)
         CloudRun->>CloudRun: FFmpeg 오버레이 렌더링 (자막/타이틀 합성)
         CloudRun->>Storage: 완성된 MP4 업로드 (7일 자동 삭제 룰 적용)

@@ -1,10 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uuid
 import time
 from app.services.firestore_service import save_document, get_document, get_all_documents
-from app.services.task_service import create_task
+from app.routers.worker import execute_render_job
 
 router = APIRouter(prefix="/api/render", tags=["Render"])
 
@@ -27,7 +27,7 @@ class BatchRenderRequest(BaseModel):
     items: List[ShortRenderItem]
 
 @router.post("/queue")
-async def queue_renders(req: BatchRenderRequest):
+async def queue_renders(req: BatchRenderRequest, background_tasks: BackgroundTasks):
     if not req.items:
         raise HTTPException(status_code=400, detail="선택된 쇼츠 항목이 없습니다.")
 
@@ -47,8 +47,8 @@ async def queue_renders(req: BatchRenderRequest):
         
         save_document("render_jobs", job_id, job_data)
         
-        # Cloud Tasks에 비동기 워커로 할당
-        create_task("/api/worker/render", {"job_id": job_id})
+        # [선택 B]: 외부 Cloud Tasks 없이 Cloud Run 내부 BackgroundTasks에서 즉시 렌더링 실행!
+        background_tasks.add_task(execute_render_job, job_id)
         
         queued_jobs.append({
             "job_id": job_id,

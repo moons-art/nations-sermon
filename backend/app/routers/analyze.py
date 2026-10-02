@@ -207,12 +207,15 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
     }
     save_document("analysis_jobs", task_id, task_data)
 
-    create_task("/api/worker/analyze", {
-        "task_id": task_id,
-        "youtube_url": url,
-        "api_key": req.gemini_api_key,
-        "force_refresh": req.force_refresh or False
-    })
+    # [선택 B]: 외부 Cloud Tasks 의존성을 제거하고, Cloud Run 내부 BackgroundTasks로 즉시 실행!
+    background_tasks.add_task(
+        _run_async_analysis,
+        task_id=task_id,
+        url=url,
+        api_key=req.gemini_api_key,
+        force_refresh=req.force_refresh or False
+    )
+    logger.info(f"⚡ [서버 내부 백그라운드 실행] 분석 작업 즉시 시작: {task_id}")
 
     return {
         "status": "success",
