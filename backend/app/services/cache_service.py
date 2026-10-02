@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 from app.config import OUTPUTS_DIR
+from app.services.firestore_service import save_document, get_document
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,18 @@ def get_cached_analysis(url: str) -> Optional[Dict[str, Any]]:
         except Exception as e:
             logger.warning(f"캐시 파일 로드 실패: {e}")
             
+    # 3. Firestore (영구 저장소) 캐시 확인
+    fs_data = get_document("analysis_cache", key)
+    if fs_data:
+        _memory_cache[key] = fs_data
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(fs_data, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+        logger.info(f"✅ [과금방지 캐시 히트 (Firestore)] URL: {url} -> Gemini API 재호출 생략")
+        return fs_data
+
     return None
 
 def save_cached_analysis(url: str, data: Dict[str, Any]):
@@ -58,9 +71,13 @@ def save_cached_analysis(url: str, data: Dict[str, Any]):
     try:
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        logger.info(f"💾 설교 분석 결과 캐시 저장 완료: {cache_file.name}")
+        logger.info(f"💾 설교 분석 결과 로컬 캐시 저장 완료: {cache_file.name}")
     except Exception as e:
-        logger.warning(f"캐시 파일 저장 실패: {e}")
+        logger.warning(f"캐시 파일 로컬 저장 실패: {e}")
+
+    # Firestore 영구 보관
+    if save_document("analysis_cache", key, data):
+        logger.info(f"🔥 설교 분석 결과 Firestore 영구 저장 완료: {key}")
 
 def get_cached_text_analysis(text: str) -> Optional[Dict[str, Any]]:
     """동일한 텍스트의 분석 결과 캐시 확인"""
@@ -79,6 +96,18 @@ def get_cached_text_analysis(text: str) -> Optional[Dict[str, Any]]:
                 return data
         except Exception:
             pass
+            
+    # Firestore 영구 저장소 캐시 확인
+    fs_data = get_document("analysis_cache", key)
+    if fs_data:
+        _memory_cache[key] = fs_data
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(fs_data, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+        return fs_data
+
     return None
 
 def save_cached_text_analysis(text: str, data: Dict[str, Any]):
@@ -93,3 +122,5 @@ def save_cached_text_analysis(text: str, data: Dict[str, Any]):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+        
+    save_document("analysis_cache", key, data)

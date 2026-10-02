@@ -11,6 +11,7 @@ from app.config import OUTPUTS_DIR
 from app.services.youtube_service import download_or_prepare_clip
 from app.services.ffmpeg_service import render_short_video
 from app.services.storage_service import upload_short_to_firebase
+from app.services.firestore_service import save_document, get_all_documents
 
 logger = logging.getLogger(__name__)
 
@@ -53,21 +54,46 @@ class SequentialRenderManager:
     def _save_job_meta(self, job: RenderJob):
         """작업 상세 정보를 JSON 파일로 영구 보관 (서버 재시작 후에도 정확한 구간/URL 복원)"""
         try:
+            job_dict = asdict(job)
             meta_path = OUTPUTS_DIR / f"{job.job_id}.json"
             import json
-            meta_path.write_text(json.dumps(asdict(job), ensure_ascii=False, indent=2), encoding="utf-8")
+            meta_path.write_text(json.dumps(job_dict, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
-            logger.warning(f"작업 메타데이터 저장 실패: {e}")
+            logger.warning(f"작업 메타데이터 로컬 저장 실패: {e}")
+            
+        try:
+            # Firestore 영구 저장
+            save_document("render_jobs", job.job_id, job_dict)
+        except Exception as e:
+            logger.warning(f"작업 메타데이터 Firestore 저장 실패: {e}")
 
     def _load_existing_outputs(self):
         try:
             import json
-            # 1. 영구 저장된 job json 메타데이터 파일 우선 로드
+            
+            # 0. Firestore (영구 저장소)에서 가장 먼저 로드
+            try:
+                fs_jobs = get_all_documents("render_jobs")
+                for data in fs_jobs:
+                    # 처리 중인 상태로 서버가 죽었을 경우 대비
+                    if data.get("status") in ["QUEUED", "PROCESSING"]:
+                        data["status"] = "FAILED"
+                        data["error_message"] = "서버 재시작으로 인해 렌더링이 중단되었습니다."
+                    job = RenderJob(**data)
+                    self.jobs[job.job_id] = job
+                logger.info(f"🔥 Firestore에서 {len(fs_jobs)}개의 렌더링 작업 내역 로드 완료")
+            except Exception as e:
+                logger.warning(f"Firestore 렌더링 작업 로드 실패: {e}")
+
+            # 1. 영구 저장된 job json 메타데이터 파일 우선 로드 (로컬 폴백)
             for meta_file in sorted(OUTPUTS_DIR.glob("job-*.json"), key=lambda f: f.stat().st_mtime, reverse=True):
                 try:
                     data = json.loads(meta_file.read_text(encoding="utf-8"))
-                    job = RenderJob(**data)
-                    self.jobs[job.job_id] = job
+                    if data.get("job_id") not in self.jobs:
+                        if data.get("status") in ["QUEUED", "PROCESSING"]:
+                            data["status"] = "FAILED"
+                        job = RenderJob(**data)
+                        self.jobs[job.job_id] = job
                 except Exception:
                     pass
 
