@@ -291,11 +291,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     ass_path.write_text(ass_content, encoding="utf-8")
 
     # 3. FFmpeg 명령어 조합
-    # 비디오 스케일링 필터 (1080x1920 9:16)
+    # 비디오 스케일링 필터 (1080x1920 9:16) - setpts=PTS-STARTPTS로 타임스탬프를 0으로 강제 초기화하여 검은 화면 방지
     if template_type in ["cinema_letterbox", "wide"]:
         # 시네마 와이드: 영상을 위아래로 더 길게 확대 (1280px), 위 검은 배경 420px, 아래 220px
         base_vfilter = (
-            "[0:v]scale=1080:1280:force_original_aspect_ratio=increase:flags=lanczos,"
+            "[0:v]setpts=PTS-STARTPTS,scale=1080:1280:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1280:(iw-1080)/2:(ih-1280)/2,"
             "unsharp=5:5:0.8:3:3:0.4,"
             "pad=1080:1920:0:420:color=0x0B0C0E[v_base]"
@@ -303,7 +303,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     elif template_type in ["blue_wide", "vivid_blue"]:
         # 블루 와이드: 영상 높이 1280px, 배경 파란색(0x1E62D0)
         base_vfilter = (
-            "[0:v]scale=1080:1280:force_original_aspect_ratio=increase:flags=lanczos,"
+            "[0:v]setpts=PTS-STARTPTS,scale=1080:1280:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1280:(iw-1080)/2:(ih-1280)/2,"
             "unsharp=5:5:0.8:3:3:0.4,"
             "pad=1080:1920:0:420:color=0x1E62D0[v_base]"
@@ -311,18 +311,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     elif template_type in ["yellow_wide", "yellow_frame"]:
         # 옐로우 와이드: 영상 높이 1280px, 배경 노란색(0xF4CF42)
         base_vfilter = (
-            "[0:v]scale=1080:1280:force_original_aspect_ratio=increase:flags=lanczos,"
+            "[0:v]setpts=PTS-STARTPTS,scale=1080:1280:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1280:(iw-1080)/2:(ih-1280)/2,"
             "unsharp=5:5:0.8:3:3:0.4,"
             "pad=1080:1920:0:420:color=0xF4CF42[v_base]"
         )
     elif template_type in ["yellow_minimal"]:
         # [신규] 옐로우 미니멀: 미니멀 프레임에 밝고 산뜻한 옐로우 배경(0xF4CF42)
-        base_vfilter = "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0xF4CF42[v_base]"
+        base_vfilter = "[0:v]setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0xF4CF42[v_base]"
     elif template_type in ["transparent_minimal"]:
         # 투명 미니멀: 블러 처리된 영상 배경 위에 중앙 영상 오버레이
         base_vfilter = (
-            "[0:v]split=2[v_bg_in][v_fg_in];"
+            "[0:v]setpts=PTS-STARTPTS,split=2[v_bg_in][v_fg_in];"
             "[v_bg_in]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=10:2,eq=brightness=-0.15[bg];"
             "[v_fg_in]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2[v_base]"
@@ -330,15 +330,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     elif template_type in ["full_cinema", "center_crop"]:
         # 풀스크린: 화면 가득 채움 + 고화질 Lanczos 보간법 + 미세 선명화
         base_vfilter = (
-            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
+            "[0:v]setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
             "crop=1080:1920:(iw-1080)/2:(ih-1920)/2,"
             "unsharp=5:5:0.8:3:3:0.4[v_base]"
         )
     else:
         # 블랙 미니멀 (dark_minimal / modern_grey): 딥 블랙 배경 위에 원본 영상 배치
-        base_vfilter = "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x0E0E10[v_base]"
+        base_vfilter = "[0:v]setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x0E0E10[v_base]"
 
-    # 3. 소스 비디오 실제 재생 시간 측정 및 페이드 타임 계산
+    # 4. 소스 비디오 실제 재생 시간 측정 및 페이드 타임 계산
     src_dur = get_media_duration(source_video_path)
     if src_dur <= 0:
         src_dur = max(15.0, parse_time_to_seconds(end_time) - parse_time_to_seconds(start_time))
@@ -357,11 +357,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     fade_dur = max(0.8, src_dur - fade_start)
     v_fade_start = max(1.0, src_dur - 0.8)
 
-    # 4. FFmpeg 명령어 조합
+    # 5. FFmpeg 명령어 조합
     cmd = [FFMPEG_PATH, "-y", "-i", str(source_video_path)]
 
-    # 헤더 이미지 입력
-    cmd.extend(["-i", str(hdr_path)])
+    # 헤더 이미지 입력: -loop 1로 정지 이미지를 동영상 전체 길이에 걸쳐 유지 (프리징 방지)
+    cmd.extend(["-loop", "1", "-i", str(hdr_path)])
 
     # BGM 입력: -stream_loop 무한 루프로 인한 EOF 충돌을 방지하기 위해 비디오 길이(src_dur)로 안전하게 트림
     bgm_input_idx = None
@@ -373,8 +373,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     v_chain = [base_vfilter]
     curr_v = "v_base"
     
-    # 1. 헤더 오버레이 합성
-    v_chain.append(f"[{curr_v}][1:v]overlay=0:0[v_hdr]")
+    # 1. 헤더 오버레이 합성 (shortest=1을 주어 비디오 길이에 맞춤)
+    v_chain.append(f"[{curr_v}][1:v]overlay=0:0:shortest=1[v_hdr]")
     curr_v = "v_hdr"
 
     # 2. ASS 자막 합성 (libass 필터)
@@ -386,7 +386,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # 비디오 끝부분 0.8초 부드러운 디졸브 페이드아웃
     v_chain.append(f"[{curr_v}]fade=t=out:st={v_fade_start:.2f}:d=0.8[vout]")
 
-    # 오디오 처리 (목소리 오디오는 fade_start 시점에 페이드아웃 묵음 처리하여 뒷말 차단)
+    # 오디오 처리 (asetpts=PTS-STARTPTS로 오디오 시작점도 0초로 리셋)
     has_audio = check_has_audio_stream(source_video_path)
     a_filter = ""
     if bgm_input_idx is not None:
@@ -398,7 +398,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 chosen_bgm_vol = 0.36
 
             a_filter = (
-                f";[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0,"
+                f";[0:a]asetpts=PTS-STARTPTS,aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0,"
                 f"afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}[voice_std];"
                 f"[{bgm_input_idx}:a]atrim=0:{src_dur:.2f},aformat=sample_rates=44100:channel_layouts=stereo,volume={chosen_bgm_vol:.2f},"
                 f"afade=t=out:st={v_fade_start:.2f}:d=0.8[bgm_std];"
@@ -410,7 +410,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cmd.extend(["-filter_complex", full_filter, "-map", "[vout]", "-map", "[aout]"])
     else:
         if has_audio:
-            a_filter = f";[0:a]afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}[aout]"
+            a_filter = f";[0:a]asetpts=PTS-STARTPTS,afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}[aout]"
             full_filter = ";".join(v_chain) + a_filter
             cmd.extend(["-filter_complex", full_filter, "-map", "[vout]", "-map", "[aout]"])
         else:
@@ -422,7 +422,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     cmd.extend([
         "-t", f"{src_dur:.2f}",
+        "-avoid_negative_ts", "make_zero",
         "-c:v", "libx264",
+        "-profile:v", "main",
+        "-level", "3.1",
         "-preset", "ultrafast",
         "-crf", "20",
         "-pix_fmt", "yuv420p",

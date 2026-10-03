@@ -420,6 +420,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                         fix_cmd = [
                             FFMPEG_PATH, "-y",
                             "-i", str(cand),
+                            "-avoid_negative_ts", "make_zero",
                             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
                             "-c:a", "aac", "-b:a", "128k",
                             "-movflags", "+faststart",
@@ -484,7 +485,8 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             cmd.extend(["-i", video_fmt['url']])
 
             # 오디오 입력 스트림
-            if audio_fmt and audio_fmt.get('url') and audio_fmt['url'] != video_fmt['url']:
+            has_separate_audio = bool(audio_fmt and audio_fmt.get('url') and audio_fmt['url'] != video_fmt['url'])
+            if has_separate_audio:
                 cmd.extend(["-ss", str(start_sec), "-t", str(clip_duration)])
                 if proxy_url:
                     cmd.extend(["-http_proxy", proxy_url])
@@ -492,7 +494,15 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                     cmd.extend(["-headers", headers_arg])
                 cmd.extend(["-i", audio_fmt['url']])
 
+            # 스트림 명시 매핑 및 타임스탬프 0 리셋
+            cmd.extend(["-map", "0:v:0"])
+            if has_separate_audio:
+                cmd.extend(["-map", "1:a:0?"])
+            else:
+                cmd.extend(["-map", "0:a:0?"])
+
             cmd.extend([
+                "-avoid_negative_ts", "make_zero",
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-crf", "22",
@@ -544,6 +554,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                 p_cmd.extend(["-http_proxy", proxy_url])
             p_cmd.extend([
                 "-i", p_url,
+                "-avoid_negative_ts", "make_zero",
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart",
