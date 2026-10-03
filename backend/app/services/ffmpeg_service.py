@@ -432,10 +432,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     try:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+        err_msg = res.stderr.decode("utf-8", errors="replace")
         if res.returncode != 0:
-            err_msg = res.stderr.decode("utf-8", errors="replace")
             logger.error(f"FFmpeg 인코딩 실패 (Code {res.returncode}): {err_msg[-500:]}")
             raise RuntimeError(f"FFmpeg 영상 렌더링 실패: {err_msg[-300:]}")
+            
+        if not output_video_path.exists():
+            logger.error(f"FFmpeg 반환 코드는 0이나 파일이 없습니다. FFmpeg 로그: {err_msg}")
+            raise RuntimeError(f"FFmpeg 반환 코드는 0이나 파일이 없습니다: {err_msg[-300:]}")
+            
         logger.info(f"✅ libass 기반 초고속 쇼츠 렌더링 완료: {output_video_path}")
     except subprocess.TimeoutExpired:
         logger.error(f"FFmpeg 인코딩 타임아웃 (180초 초과): {output_video_path}")

@@ -68,7 +68,7 @@ export default function App() {
         const uniqueItems = [];
         const seen = new Set();
         for (const item of res.items) {
-          const vid = item._id || item.metadata?.video_id;
+          const vid = item.metadata?.video_id || item.youtube_url || item._id;
           if (!vid || !seen.has(vid)) {
             if (vid) seen.add(vid);
             uniqueItems.push(item);
