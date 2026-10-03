@@ -426,6 +426,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-movflags", "+faststart",
         "-shortest",
         str(output_video_path)
     ])
