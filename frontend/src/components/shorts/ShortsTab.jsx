@@ -196,20 +196,6 @@ export default function ShortsTab({
       } else {
         setShowCreatedNotice(true);
       }
-
-      // Cloud Run 환경에서 CPU Throttling으로 인한 멈춤을 방지하기 위해,
-      // 브라우저 커넥션을 유지하며 각 작업을 순차적으로 직접 렌더링 완수
-      if (queueRes?.jobs && queueRes.jobs.length > 0) {
-        (async () => {
-          for (const job of queueRes.jobs) {
-            try {
-              await executeRenderJob(job.job_id);
-            } catch (jobErr) {
-              console.warn(`[쇼츠 렌더링 완료 대기 중 알림] Job ${job.job_id}:`, jobErr);
-            }
-          }
-        })();
-      }
     } catch (err) {
       console.error(err);
       alert(`렌더링 등록 실패: ${err.message || '서버 오류'}`);

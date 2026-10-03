@@ -338,32 +338,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 블랙 미니멀 (dark_minimal / modern_grey): 딥 블랙 배경 위에 원본 영상 배치
         base_vfilter = "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x0E0E10[v_base]"
 
-    cmd = [FFMPEG_PATH, "-y", "-i", str(source_video_path)]
-
-    # 헤더 이미지 입력
-    cmd.extend(["-i", str(hdr_path)])
-
-    # BGM 입력
-    bgm_input_idx = None
-    if bgm_path and bgm_path.exists():
-        cmd.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
-        bgm_input_idx = 2
-
-    # 필터 컴플렉스 연결
-    v_chain = [base_vfilter]
-    curr_v = "v_base"
-    
-    # 1. 헤더 오버레이 합성
-    v_chain.append(f"[{curr_v}][1:v]overlay=0:0[v_hdr]")
-    curr_v = "v_hdr"
-
-    # 2. ASS 자막 합성 (libass 필터)
-    # 윈도우 환경을 위해 경로의 콜론 등을 이스케이프 처리
-    safe_ass_path = str(ass_path).replace('\\', '/').replace(':', '\\:')
-    v_chain.append(f"[{curr_v}]subtitles='{safe_ass_path}'[v_sub]")
-    curr_v = "v_sub"
-
-    # ── [끝부분 설교가 끝나면 뒤에 있는 말을 페이드아웃/묵음 처리하고 자연스러운 여운 조성] ──
+    # 3. 소스 비디오 실제 재생 시간 측정 및 페이드 타임 계산
     src_dur = get_media_duration(source_video_path)
     if src_dur <= 0:
         src_dur = max(15.0, parse_time_to_seconds(end_time) - parse_time_to_seconds(start_time))
@@ -380,9 +355,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     fade_start = min(src_dur - 1.5, last_sub_end_sec + 0.8)
     fade_start = max(1.0, fade_start)
     fade_dur = max(0.8, src_dur - fade_start)
+    v_fade_start = max(1.0, src_dur - 0.8)
+
+    # 4. FFmpeg 명령어 조합
+    cmd = [FFMPEG_PATH, "-y", "-i", str(source_video_path)]
+
+    # 헤더 이미지 입력
+    cmd.extend(["-i", str(hdr_path)])
+
+    # BGM 입력: -stream_loop 무한 루프로 인한 EOF 충돌을 방지하기 위해 비디오 길이(src_dur)로 안전하게 트림
+    bgm_input_idx = None
+    if bgm_path and bgm_path.exists():
+        cmd.extend(["-stream_loop", "-1", "-t", f"{src_dur:.2f}", "-i", str(bgm_path)])
+        bgm_input_idx = 2
+
+    # 필터 컴플렉스 연결
+    v_chain = [base_vfilter]
+    curr_v = "v_base"
+    
+    # 1. 헤더 오버레이 합성
+    v_chain.append(f"[{curr_v}][1:v]overlay=0:0[v_hdr]")
+    curr_v = "v_hdr"
+
+    # 2. ASS 자막 합성 (libass 필터)
+    # 윈도우 환경을 위해 경로의 콜론 등을 이스케이프 처리
+    safe_ass_path = str(ass_path).replace('\\', '/').replace(':', '\\:')
+    v_chain.append(f"[{curr_v}]subtitles='{safe_ass_path}'[v_sub]")
+    curr_v = "v_sub"
 
     # 비디오 끝부분 0.8초 부드러운 디졸브 페이드아웃
-    v_fade_start = max(1.0, src_dur - 0.8)
     v_chain.append(f"[{curr_v}]fade=t=out:st={v_fade_start:.2f}:d=0.8[vout]")
 
     # 오디오 처리 (목소리 오디오는 fade_start 시점에 페이드아웃 묵음 처리하여 뒷말 차단)
@@ -399,12 +400,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             a_filter = (
                 f";[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0,"
                 f"afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}[voice_std];"
-                f"[{bgm_input_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume={chosen_bgm_vol:.2f},"
+                f"[{bgm_input_idx}:a]atrim=0:{src_dur:.2f},aformat=sample_rates=44100:channel_layouts=stereo,volume={chosen_bgm_vol:.2f},"
                 f"afade=t=out:st={v_fade_start:.2f}:d=0.8[bgm_std];"
                 f"[voice_std][bgm_std]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
             )
         else:
-            a_filter = f";[{bgm_input_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.25,afade=t=out:st={v_fade_start:.2f}:d=0.8[aout]"
+            a_filter = f";[{bgm_input_idx}:a]atrim=0:{src_dur:.2f},aformat=sample_rates=44100:channel_layouts=stereo,volume=0.25,afade=t=out:st={v_fade_start:.2f}:d=0.8[aout]"
         full_filter = ";".join(v_chain) + a_filter
         cmd.extend(["-filter_complex", full_filter, "-map", "[vout]", "-map", "[aout]"])
     else:
@@ -420,6 +421,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ])
 
     cmd.extend([
+        "-t", f"{src_dur:.2f}",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-crf", "20",
@@ -427,7 +429,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",
-        "-shortest",
         str(output_video_path)
     ])
 
@@ -435,12 +436,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
         err_msg = res.stderr.decode("utf-8", errors="replace")
         if res.returncode != 0:
-            logger.error(f"FFmpeg 인코딩 실패 (Code {res.returncode}): {err_msg[-500:]}")
-            raise RuntimeError(f"FFmpeg 영상 렌더링 실패: {err_msg[-300:]}")
+            logger.error(f"FFmpeg 인코딩 실패 (Code {res.returncode}):\n{err_msg}")
+            clean_err = err_msg.strip()
+            err_summary = clean_err[-1200:] if len(clean_err) > 1200 else clean_err
+            raise RuntimeError(f"FFmpeg 영상 렌더링 실패: {err_summary}")
             
         if not output_video_path.exists():
             logger.error(f"FFmpeg 반환 코드는 0이나 파일이 없습니다. FFmpeg 로그: {err_msg}")
-            raise RuntimeError(f"FFmpeg 반환 코드는 0이나 파일이 없습니다: {err_msg[-300:]}")
+            raise RuntimeError(f"FFmpeg 반환 코드는 0이나 파일이 없습니다: {err_msg[-500:]}")
             
         logger.info(f"✅ libass 기반 초고속 쇼츠 렌더링 완료: {output_video_path}")
     except subprocess.TimeoutExpired:

@@ -19,8 +19,8 @@ gcloud run deploy $SERVICE_NAME \
   --platform managed \
   --region $REGION \
   --allow-unauthenticated \
-  --concurrency 4 \
-  --memory 2Gi \
+  --concurrency 1 \
+  --memory 4Gi \
   --cpu 2 \
   --timeout 3600 \
   --set-env-vars CLOUD_TASKS_LOCATION=$REGION,CLOUD_TASKS_QUEUE=sermon-worker-queue

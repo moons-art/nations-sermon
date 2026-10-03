@@ -25,14 +25,17 @@ async def execute_render_job(job_id: str) -> Dict[str, Any]:
         logger.error(f"Render job not found in Firestore: {job_id}")
         return {"status": "error", "message": "Job not found"}
 
-    if job.get("status") in ["COMPLETED", "CANCELLED", "FAILED"]:
-        logger.info(f"Job {job_id} is already in terminal state: {job.get('status')}")
-        return {"status": "skipped", "message": "Already terminal state"}
+    if job.get("status") in ["PROCESSING", "COMPLETED", "CANCELLED", "FAILED"]:
+        logger.info(f"Job {job_id} is already running or in terminal state: {job.get('status')}")
+        return {"status": "skipped", "message": f"Already {job.get('status')}"}
 
     def update_job(updates: dict):
         job.update(updates)
         job["updated_at"] = time.time()
         save_document("render_jobs", job_id, job)
+
+    # 중복 실행 방지를 위해 즉시 PROCESSING 선점 마킹
+    update_job({"status": "PROCESSING", "progress": 10, "stage": "영상 소스 준비 중..."})
         
     source_video = OUTPUTS_DIR / f"src_{job.get('short_id', 'unknown')}_{job_id}.mp4"
     output_video = OUTPUTS_DIR / f"shorts_{job.get('short_id', 'unknown')}_{job_id}.mp4"
