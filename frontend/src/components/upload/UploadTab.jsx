@@ -36,6 +36,31 @@ export default function UploadTab({
   onSelectHistory,
   onDeleteHistory,
 }) {
+  const FRONTEND_VERSION = 'v1.1';
+  const [isBackendSynced, setIsBackendSynced] = useState(null);
+
+  useEffect(() => {
+    const checkSync = async () => {
+      try {
+        const { BASE_URL } = await import('../../api/client');
+        const res = await fetch(`${BASE_URL}/api/version`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.version === FRONTEND_VERSION) {
+            setIsBackendSynced(true);
+          } else {
+            setIsBackendSynced(false);
+          }
+        } else {
+          setIsBackendSynced(false);
+        }
+      } catch (e) {
+        setIsBackendSynced(false);
+      }
+    };
+    checkSync();
+  }, []);
+
   // 모드: 'youtube' | 'text' | 'refine'
   const [subMode, setSubMode] = useState('youtube');
 
@@ -243,8 +268,9 @@ export default function UploadTab({
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       
-      {/* 3대 업로드/교정 서브 모드 탭 (클로드 심플 스타일) */}
-      <div className="flex items-center gap-1.5 p-1 bg-[#EFECE3] rounded-2xl w-fit border border-[#E5E3DB]">
+      <div className="flex items-center justify-between">
+        {/* 3대 업로드/교정 서브 모드 탭 (클로드 심플 스타일) */}
+        <div className="flex items-center gap-1.5 p-1 bg-[#EFECE3] rounded-2xl w-fit border border-[#E5E3DB]">
         <button
           onClick={() => setSubMode('youtube')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
@@ -283,6 +309,23 @@ export default function UploadTab({
             <span className="w-1.5 h-1.5 rounded-full bg-[#DA7756]"></span>
           )}
         </button>
+      </div>
+      
+        {isBackendSynced !== null && (
+          <div className={`px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isBackendSynced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+            {isBackendSynced ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                프론트/백엔드 배포 동기화 완료 (v1.1)
+              </>
+            ) : (
+              <>
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                배포 불일치! (백엔드 미배포 의심)
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────

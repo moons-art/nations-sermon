@@ -48,3 +48,8 @@ async def health_check():
         "service": "Seolgyo AI Backend",
         "version": "1.0.0"
     }
+
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": "v1.1"}
