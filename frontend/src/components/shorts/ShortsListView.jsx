@@ -348,12 +348,6 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
                 : `${BASE_URL}${job.video_url}`
               : null;
 
-            const thumbnailUrl = job.thumbnail_url
-              ? job.thumbnail_url.startsWith('http')
-                ? job.thumbnail_url
-                : `${BASE_URL}${job.thumbnail_url}`
-              : null;
-
             return (
               <div
                 key={job.job_id}
@@ -364,20 +358,7 @@ export default function ShortsListView({ onView, sermonData, youtubeUrl }) {
                   className="relative aspect-[9/16] bg-[#1C1B18] flex items-center justify-center cursor-pointer overflow-hidden"
                   onClick={() => setSelectedVideo({ url: videoUrl, title: job.title })}
                 >
-                  {thumbnailUrl ? (
-                    <img
-                      src={thumbnailUrl}
-                      alt={job.title || '쇼츠 썸네일'}
-                      className="w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <video
-                      src={`${videoUrl}#t=0.5`}
-                      preload="metadata"
-                      className="w-full h-full object-cover opacity-85 group-hover:scale-105 transition-transform duration-300"
-                    />
-                  )}
+                  <video src={videoUrl} className="w-full h-full object-cover opacity-85 group-hover:scale-105 transition-transform duration-300" />
                   <div className="absolute inset-0 bg-black/25 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                     <div className="w-9 h-9 rounded-full bg-white/90 text-[#282622] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
                       <Play className="w-4 h-4 fill-current ml-0.5" />

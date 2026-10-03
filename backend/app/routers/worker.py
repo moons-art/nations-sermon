@@ -2,12 +2,11 @@ import os
 import time
 import logging
 import asyncio
-import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from typing import Dict, Any
 
-from app.config import OUTPUTS_DIR, FFMPEG_PATH
+from app.config import OUTPUTS_DIR
 from app.services.firestore_service import save_document, get_document
 from app.services.youtube_service import download_or_prepare_clip, is_valid_video_file
 from app.services.ffmpeg_service import render_short_video
@@ -105,48 +104,19 @@ async def execute_render_job(job_id: str) -> Dict[str, Any]:
 
         update_job({"progress": 90, "stage": "완성된 영상 서버 업로드 중..."})
 
-        # 썸네일 이미지 추출 (720x1280 JPEG 고화질 스냅샷)
-        thumb_path = output_video.with_suffix(".jpg")
-        try:
-            thumb_cmd = [
-                FFMPEG_PATH, "-y",
-                "-ss", "00:00:01",
-                "-i", str(output_video),
-                "-vframes", "1",
-                "-q:v", "2",
-                str(thumb_path)
-            ]
-            subprocess.run(thumb_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
-        except Exception as e:
-            logger.warning(f"썸네일 생성 예외: {e}")
-
         storage_url = await loop.run_in_executor(
             None, upload_short_to_firebase, output_video, output_video.name
         )
         final_url = storage_url if storage_url else f"/api/outputs/{output_video.name}"
 
-        thumbnail_url = None
-        if thumb_path.exists() and thumb_path.stat().st_size > 1000:
-            thumb_storage_url = await loop.run_in_executor(
-                None, upload_short_to_firebase, thumb_path, thumb_path.name
-            )
-            thumbnail_url = thumb_storage_url if thumb_storage_url else f"/api/outputs/{thumb_path.name}"
-            if thumb_storage_url:
-                try: thumb_path.unlink()
-                except Exception: pass
-
-        update_data = {
+        update_job({
             "status": "COMPLETED",
             "progress": 100,
             "stage": "렌더링 및 업로드 완료!",
-            "video_url": final_url,
-        }
-        if thumbnail_url:
-            update_data["thumbnail_url"] = thumbnail_url
-
-        update_job(update_data)
-        logger.info(f"✅ [쇼츠 렌더링 완료] Job ID: {job_id} -> Video: {final_url}, Thumb: {thumbnail_url}")
-        return {"status": "success", "job_id": job_id, "video_url": final_url, "thumbnail_url": thumbnail_url}
+            "video_url": final_url
+        })
+        logger.info(f"✅ [쇼츠 렌더링 완료] Job ID: {job_id} -> URL: {final_url}")
+        return {"status": "success", "job_id": job_id, "video_url": final_url}
         
     except Exception as e:
         logger.error(f"❌ [렌더링 실패] Job ID: {job_id}, 에러: {e}", exc_info=True)
@@ -166,16 +136,8 @@ async def execute_render_job(job_id: str) -> Dict[str, Any]:
                     output_video.unlink()
                 except Exception:
                     pass
-        if 'thumb_path' in locals() and thumb_path and thumb_path.exists():
-            if 'thumb_storage_url' in locals() and thumb_storage_url:
-                try:
-                    thumb_path.unlink()
-                except Exception:
-                    pass
         for temp_f in OUTPUTS_DIR.glob(f"*{job_id}*"):
             if output_video and temp_f == output_video and ('storage_url' not in locals() or not storage_url):
-                continue
-            if 'thumb_path' in locals() and thumb_path and temp_f == thumb_path and ('thumb_storage_url' not in locals() or not thumb_storage_url):
                 continue
             if temp_f.suffix in [".part", ".mkv", ".webm"] or temp_f.name.startswith("tmp_") or temp_f.name.startswith("src_"):
                 try:

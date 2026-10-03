@@ -383,8 +383,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     v_chain.append(f"[{curr_v}]subtitles='{safe_ass_path}'[v_sub]")
     curr_v = "v_sub"
 
-    # 비디오 끝부분 0.8초 부드러운 디졸브 페이드아웃 + 모바일 쇼츠 표준 720x1280 고화질(Lanczos) 다운샘플링
-    v_chain.append(f"[{curr_v}]fade=t=out:st={v_fade_start:.2f}:d=0.8,scale=720:1280:flags=lanczos[vout]")
+    # 비디오 끝부분 0.8초 부드러운 디졸브 페이드아웃
+    v_chain.append(f"[{curr_v}]fade=t=out:st={v_fade_start:.2f}:d=0.8[vout]")
 
     # 오디오 처리 (asetpts=PTS-STARTPTS로 오디오 시작점도 0초로 리셋)
     has_audio = check_has_audio_stream(source_video_path)
@@ -427,10 +427,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "-profile:v", "main",
         "-level", "3.1",
         "-preset", "ultrafast",
-        "-crf", "22",
+        "-crf", "20",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
-        "-b:a", "128k",
+        "-b:a", "192k",
         "-movflags", "+faststart",
         str(output_video_path)
     ])

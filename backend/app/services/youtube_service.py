@@ -374,9 +374,9 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
     proxy_url = get_youtube_proxy(sticky_session_id)
 
     format_spec = (
-        'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/'
-        'bestvideo[height<=720]+bestaudio/'
-        'best[height<=720]/'
+        'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/'
+        'bestvideo[height<=1080]+bestaudio/'
+        'best[height<=1080]/'
         'best'
     )
 
@@ -401,14 +401,14 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'postprocessor_args': {'ffmpeg': ['-movflags', '+faststart']},
             'ffmpeg_location': ffmpeg_dir,
             'remote_components': ['ejs:github'],
-            'socket_timeout': 60,
-            'retries': 5,
+            'socket_timeout': 30,
+            'retries': 3,
             'quiet': True,
             'no_warnings': True,
         }
         apply_youtube_proxy(opts_native, sticky_session_id)
 
-        logger.info(f"⚡ [1차 yt-dlp 네이티브 구간 다운로드 시작] 구간: {start_sec}s ~ {end_sec}s (720p 최적화)")
+        logger.info(f"⚡ [1차 yt-dlp 네이티브 구간 다운로드 시작] 구간: {start_sec}s ~ {end_sec}s")
         with yt_dlp.YoutubeDL(opts_native) as ydl:
             ydl.download([normalized_url])
 
@@ -426,7 +426,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                             "-movflags", "+faststart",
                             str(target_file)
                         ]
-                        subprocess.run(fix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40)
+                        subprocess.run(fix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
                         try: cand.unlink()
                         except: pass
                         break
@@ -455,7 +455,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             'quiet': True,
             'no_warnings': True,
             'remote_components': ['ejs:github'],
-            'socket_timeout': 30,
+            'socket_timeout': 20,
         }
         apply_youtube_proxy(opts_extract, sticky_session_id)
 
@@ -513,7 +513,7 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
             ])
 
             logger.info(f"⚡ [2차 FFmpeg 직접 Seek 실행] 구간: {start_sec:.1f}s ~ {end_sec:.1f}s")
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, env=env)
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45, env=env)
             if res.returncode == 0 and is_valid_video_file(target_file):
                 file_size_mb = target_file.stat().st_size / (1024 * 1024)
                 logger.info(f"✅ [2차 FFmpeg 직접 Seek 성공] 검증 완료: {target_file.name} ({file_size_mb:.2f} MB)")
