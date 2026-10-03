@@ -126,7 +126,8 @@ def get_all_documents(collection: str) -> List[Dict[str, Any]]:
     for key, val in _memory_store.items():
         if key.startswith(prefix):
             doc_id = key[len(prefix):]
-            if doc_id not in results or (val.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):\n                val["_id"] = doc_id
+            if doc_id not in results or (val.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):
+                val["_id"] = doc_id
                 results[doc_id] = val
 
     return list(results.values())
