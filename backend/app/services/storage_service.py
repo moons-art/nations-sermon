@@ -24,20 +24,9 @@ def _get_bucket():
         from google.cloud import storage
         _storage_client = storage.Client()
         _bucket = _storage_client.bucket(BUCKET_NAME)
-        # 버킷 존재 확인
-        if not _bucket.exists():
-            # 혹시 .firebasestorage.app 형태일 경우 재시도
-            alt_bucket_name = f"{PROJECT_ID}.firebasestorage.app"
-            alt_bucket = _storage_client.bucket(alt_bucket_name)
-            if alt_bucket.exists():
-                _bucket = alt_bucket
-                logger.info(f"Firebase Storage 대체 버킷 사용: {alt_bucket_name}")
-            else:
-                logger.warning(f"Storage 버킷({BUCKET_NAME})을 찾을 수 없습니다.")
-                return None
         return _bucket
     except Exception as e:
-        logger.info(f"로컬 환경 또는 Google Storage 미설정 (로컬 저장소 모드로 작동): {e}")
+        logger.info(f"로컬 환경 또는 Google Storage 미설정: {e}")
         return None
 
 
@@ -69,40 +58,49 @@ def ensure_7day_lifecycle_rule():
 
 def upload_short_to_firebase(local_file_path: Path, remote_filename: str) -> Optional[str]:
     """
-    렌더링된 쇼츠 mp4 파일을 Firebase Storage에 업로드하고 다운로드 URL을 반환합니다.
-    실패하거나 로컬 모드일 경우 None을 반환합니다.
+    렌더링된 쇼츠 mp4 파일을 Firebase Storage에 업로드하고 토큰 기반 다운로드 URL을 반환합니다.
+    (브라우저 및 모바일에서 100% 즉시 재생/다운로드 가능한 Firebase 공식 표준 URL)
     """
-    bucket = _get_bucket()
-    if not bucket or not local_file_path.exists():
+    if not local_file_path or not local_file_path.exists():
+        logger.warning(f"업로드할 로컬 파일이 존재하지 않습니다: {local_file_path}")
         return None
 
-    try:
-        ensure_7day_lifecycle_rule()
-        blob_path = f"shorts/{remote_filename}"
-        blob = bucket.blob(blob_path)
-        
-        # mp4 업로드 (캐시 제어 및 Content-Type 지정)
-        blob.upload_from_filename(
-            str(local_file_path),
-            content_type="video/mp4"
-        )
-        
-        # 공개 읽기 권한 시도 또는 서명된 URL (7일 만료)
+    import uuid
+    import urllib.parse
+
+    bucket_candidates = [
+        os.getenv("FIREBASE_STORAGE_BUCKET", f"{PROJECT_ID}.appspot.com"),
+        f"{PROJECT_ID}.firebasestorage.app",
+        f"{PROJECT_ID}.appspot.com"
+    ]
+    seen = set()
+    unique_buckets = [b for b in bucket_candidates if not (b in seen or seen.add(b))]
+
+    for b_name in unique_buckets:
         try:
-            blob.make_public()
-            public_url = blob.public_url
-            logger.info(f"✅ Firebase Storage 공개 URL 발급: {public_url}")
-            return public_url
-        except Exception:
-            # 버킷이 공개 차단 정책일 경우 7일 만료 Signed URL 생성
-            signed_url = blob.generate_signed_url(
-                version="v4",
-                expiration=timedelta(days=7),
-                method="GET"
+            from google.cloud import storage
+            client = storage.Client()
+            bucket = client.bucket(b_name)
+            
+            blob_path = f"shorts/{remote_filename}"
+            blob = bucket.blob(blob_path)
+            
+            # Firebase 공식 토큰 기반 공개 다운로드 URL 생성
+            download_token = uuid.uuid4().hex
+            blob.metadata = {"firebaseStorageDownloadTokens": download_token}
+            
+            blob.upload_from_filename(
+                str(local_file_path),
+                content_type="video/mp4"
             )
-            logger.info(f"✅ Firebase Storage 7일 서명 URL 발급 완료: {remote_filename}")
-            return signed_url
+            
+            encoded_path = urllib.parse.quote(blob_path, safe='')
+            download_url = f"https://firebasestorage.googleapis.com/v0/b/{b_name}/o/{encoded_path}?alt=media&token={download_token}"
+            logger.info(f"✅ Firebase Storage 업로드 및 토큰 URL 발급 성공 ({b_name}): {download_url}")
+            return download_url
+        except Exception as e:
+            logger.warning(f"Firebase Storage 버킷({b_name}) 업로드 실패: {e}")
+            continue
 
-    except Exception as e:
-        logger.warning(f"Firebase Storage 업로드 실패 (로컬 URL로 대체합니다): {e}")
-        return None
+    logger.warning("모든 Firebase Storage 버킷 업로드 실패 -> 로컬 URL로 폴백")
+    return None

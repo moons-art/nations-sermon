@@ -129,17 +129,21 @@ async def execute_render_job(job_id: str) -> Dict[str, Any]:
                 source_video.unlink()
             except Exception:
                 pass
-        # OOM 누수 방지: Firebase 업로드 성공 여부와 상관없이 임시 폴더에 남은 출력 및 중간 파일 전량 삭제
-        if output_video and output_video.exists():
-            try:
-                output_video.unlink()
-            except Exception:
-                pass
+        # Firebase Storage 업로드에 성공한 경우에만 로컬 임시 output_video 삭제 (로컬 URL 사용 시 영구 보존)
+        if 'storage_url' in locals() and storage_url:
+            if output_video and output_video.exists():
+                try:
+                    output_video.unlink()
+                except Exception:
+                    pass
         for temp_f in OUTPUTS_DIR.glob(f"*{job_id}*"):
-            try:
-                temp_f.unlink()
-            except Exception:
-                pass
+            if output_video and temp_f == output_video and ('storage_url' not in locals() or not storage_url):
+                continue
+            if temp_f.suffix in [".part", ".mkv", ".webm"] or temp_f.name.startswith("tmp_") or temp_f.name.startswith("src_"):
+                try:
+                    temp_f.unlink()
+                except Exception:
+                    pass
 
 @router.post("/render")
 async def render_worker(req: Request):

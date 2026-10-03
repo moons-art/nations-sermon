@@ -33,6 +33,33 @@ async def get_bgm_audio(filename: str):
 @router.get("/outputs/{filename}")
 async def get_rendered_video(filename: str):
     file_path = OUTPUTS_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="비디오 파일을 찾을 수 없습니다.")
-    return FileResponse(file_path, media_type="video/mp4", filename=filename)
+    if file_path.exists():
+        return FileResponse(file_path, media_type="video/mp4", filename=filename)
+
+    # 로컬에 파일이 없으면 (Cloud Run 다른 인스턴스 또는 Storage에 업로드된 경우)
+    # Firebase Storage에서 찾아서 302 리다이렉트
+    try:
+        from app.services.storage_service import PROJECT_ID
+        import urllib.parse
+        from google.cloud import storage
+        client = storage.Client()
+        for b_name in [f"{PROJECT_ID}.appspot.com", f"{PROJECT_ID}.firebasestorage.app"]:
+            try:
+                bucket = client.bucket(b_name)
+                blob = bucket.blob(f"shorts/{filename}")
+                # blob 메타데이터 새로고침
+                blob.reload()
+                token = (blob.metadata or {}).get("firebaseStorageDownloadTokens")
+                encoded_path = urllib.parse.quote(f"shorts/{filename}", safe='')
+                if token:
+                    target_url = f"https://firebasestorage.googleapis.com/v0/b/{b_name}/o/{encoded_path}?alt=media&token={token}"
+                else:
+                    target_url = f"https://storage.googleapis.com/{b_name}/shorts/{filename}"
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(url=target_url, status_code=302)
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning(f"Storage 폴백 실패: {e}")
+
+    raise HTTPException(status_code=404, detail="비디오 파일을 찾을 수 없습니다.")
