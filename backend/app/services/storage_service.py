@@ -89,9 +89,10 @@ def upload_short_to_firebase(local_file_path: Path, remote_filename: str) -> Opt
             download_token = uuid.uuid4().hex
             blob.metadata = {"firebaseStorageDownloadTokens": download_token}
             
+            c_type = "image/jpeg" if remote_filename.lower().endswith(('.jpg', '.jpeg')) else "video/mp4"
             blob.upload_from_filename(
                 str(local_file_path),
-                content_type="video/mp4"
+                content_type=c_type
             )
             
             encoded_path = urllib.parse.quote(blob_path, safe='')

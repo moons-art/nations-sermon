@@ -34,7 +34,8 @@ async def get_bgm_audio(filename: str):
 async def get_rendered_video(filename: str):
     file_path = OUTPUTS_DIR / filename
     if file_path.exists():
-        return FileResponse(file_path, media_type="video/mp4", filename=filename)
+        m_type = "image/jpeg" if filename.lower().endswith(('.jpg', '.jpeg')) else "video/mp4"
+        return FileResponse(file_path, media_type=m_type, filename=filename)
 
     # 로컬에 파일이 없으면 (Cloud Run 다른 인스턴스 또는 Storage에 업로드된 경우)
     # Firebase Storage에서 찾아서 302 리다이렉트
