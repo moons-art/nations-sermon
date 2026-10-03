@@ -64,7 +64,18 @@ export default function App() {
       const { fetchGlobalLibrary } = await import('./api/client');
       const res = await fetchGlobalLibrary(50);
       if (res && res.items) {
-        const formatted = res.items.map(item => ({
+        // 중복 방어 코드 (동일한 영상 ID가 여러 개 내려오는 현상 방지)
+        const uniqueItems = [];
+        const seen = new Set();
+        for (const item of res.items) {
+          const vid = item._id || item.metadata?.video_id;
+          if (!vid || !seen.has(vid)) {
+            if (vid) seen.add(vid);
+            uniqueItems.push(item);
+          }
+        }
+        
+        const formatted = uniqueItems.map(item => ({
           id: item._id || item.metadata?.video_id || Math.random().toString(36).substr(2, 9),
           dbId: item._id || '',
           url: item.youtube_url || '',
