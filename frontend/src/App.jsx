@@ -56,15 +56,42 @@ export default function App() {
     return localStorage.getItem('last_youtube_url') || '';
   });
 
-  // ─── [비용 절감 설교 보관함]: 최근 분석된 설교 목록 영구 저장 ───
-  const [sermonHistory, setSermonHistory] = useState(() => {
+  // ─── [비용 절감 설교 보관함]: 서버에서 전역 보관함 최신 리스트 동기화 ───
+  const [sermonHistory, setSermonHistory] = useState([]);
+  
+  const fetchLibrary = async () => {
     try {
-      const saved = localStorage.getItem('sermon_history_list');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
+      const { fetchGlobalLibrary } = await import('./api/client');
+      const res = await fetchGlobalLibrary(50);
+      if (res && res.items) {
+        const formatted = res.items.map(item => ({
+          id: item._id || item.metadata?.video_id || Math.random().toString(36).substr(2, 9),
+          dbId: item._id || '',
+          url: item.youtube_url || '',
+          title: item.metadata?.title || '설교 영상',
+          church: item.metadata?.churchName || '',
+          preacher: item.metadata?.preacher || '',
+          thumbnail: item.metadata?.thumbnail || '',
+          date: item.metadata?.publishedAt || new Date().toLocaleDateString('ko-KR'),
+          shortsCount: item.shorts?.length || 0,
+          data: item,
+          isNew: false,
+        }));
+        setSermonHistory(formatted);
+        try { localStorage.setItem('sermon_history_list', JSON.stringify(formatted)); } catch(e){}
+      }
+    } catch (e) {
+      console.error('보관함 로드 실패:', e);
+      try {
+        const saved = localStorage.getItem('sermon_history_list');
+        if (saved) setSermonHistory(JSON.parse(saved));
+      } catch (err) {}
     }
-  });
+  };
+
+  useEffect(() => {
+    fetchLibrary();
+  }, []);
 
   useEffect(() => {
     if (sermonData) {
@@ -80,31 +107,19 @@ export default function App() {
   // 설교 보관함에 새 분석 데이터 추가
   const addSermonToHistory = (data, url) => {
     if (!data || !data.metadata) return;
-    setSermonHistory(prev => {
-      const filtered = prev.filter(item => item.url !== url && item.title !== data.metadata?.title);
-      const updated = [
-        {
-          id: Date.now(),
-          url: url || '',
-          title: data.metadata?.title || '설교 영상',
-          church: data.metadata?.churchName || '',
-          preacher: data.metadata?.preacher || '',
-          thumbnail: data.metadata?.thumbnail || '',
-          date: new Date().toLocaleDateString('ko-KR'),
-          shortsCount: data.shorts?.length || 0,
-          data: data,
-          isNew: true, // 신규 분석 배지
-        },
-        ...filtered.map(item => ({ ...item, isNew: false }))
-      ].slice(0, 30);
-      try {
-        localStorage.setItem('sermon_history_list', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    fetchLibrary();
   };
 
-  const handleDeleteHistory = (id) => {
+  const handleDeleteHistory = async (id) => {
+    const itemToDelete = sermonHistory.find(item => item.id === id);
+    if (itemToDelete && itemToDelete.dbId) {
+       try {
+         const { deleteGlobalLibraryItem } = await import('./api/client');
+         await deleteGlobalLibraryItem(itemToDelete.dbId);
+       } catch (e) {
+         console.error('서버 삭제 실패:', e);
+       }
+    }
     setSermonHistory(prev => {
       const updated = prev.filter(item => item.id !== id);
       try {

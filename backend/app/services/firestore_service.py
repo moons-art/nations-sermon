@@ -102,6 +102,7 @@ def get_all_documents(collection: str) -> List[Dict[str, Any]]:
             for doc in docs:
                 d = doc.to_dict()
                 doc_id = doc.id
+                d['_id'] = doc_id
                 results[doc_id] = d
                 _memory_store[f"{collection}_{doc_id}"] = d
         except Exception as e:
@@ -115,6 +116,7 @@ def get_all_documents(collection: str) -> List[Dict[str, Any]]:
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 if doc_id not in results or (data.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):
+                    data['_id'] = doc_id
                     results[doc_id] = data
                     _memory_store[f"{collection}_{doc_id}"] = data
             except Exception:
@@ -124,7 +126,7 @@ def get_all_documents(collection: str) -> List[Dict[str, Any]]:
     for key, val in _memory_store.items():
         if key.startswith(prefix):
             doc_id = key[len(prefix):]
-            if doc_id not in results or (val.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):
+            if doc_id not in results or (val.get("updated_at", 0) >= results[doc_id].get("updated_at", 0)):\n                val["_id"] = doc_id
                 results[doc_id] = val
 
     return list(results.values())

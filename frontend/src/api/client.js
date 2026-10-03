@@ -132,3 +132,21 @@ export async function fetchAdminDashboard() {
   return await response.json();
 }
 
+
+export async function fetchGlobalLibrary(limit = 50) {
+  const response = await fetch(`${BASE_URL}/api/library?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error('보관함 목록 조회 실패');
+  }
+  return await response.json();
+}
+
+export async function deleteGlobalLibraryItem(itemId) {
+  const response = await fetch(`${BASE_URL}/api/library/${itemId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('보관함 항목 삭제 실패');
+  }
+  return await response.json();
+}

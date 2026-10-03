@@ -47,8 +47,9 @@ async def queue_renders(req: BatchRenderRequest, background_tasks: BackgroundTas
         
         save_document("render_jobs", job_id, job_data)
         
-        # [선택 B]: 외부 Cloud Tasks 없이 Cloud Run 내부 BackgroundTasks에서 즉시 렌더링 실행!
-        background_tasks.add_task(execute_render_job, job_id)
+        # [수정]: Cloud Tasks 큐를 통한 비동기 워커 실행 (Cloud Run CPU 스로틀링 방어 및 병렬 렌더링 보장)
+        from app.services.task_service import create_task
+        create_task("api/worker/render", {"job_id": job_id})
         
         queued_jobs.append({
             "job_id": job_id,

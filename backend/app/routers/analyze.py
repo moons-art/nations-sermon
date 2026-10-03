@@ -207,15 +207,16 @@ async def start_async_analyze(req: AnalyzeRequest, background_tasks: BackgroundT
     }
     save_document("analysis_jobs", task_id, task_data)
 
-    # [선택 B]: 외부 Cloud Tasks 의존성을 제거하고, Cloud Run 내부 BackgroundTasks로 즉시 실행!
-    background_tasks.add_task(
-        _run_async_analysis,
-        task_id=task_id,
-        url=url,
-        api_key=req.gemini_api_key,
-        force_refresh=req.force_refresh or False
-    )
-    logger.info(f"⚡ [서버 내부 백그라운드 실행] 분석 작업 즉시 시작: {task_id}")
+    # [수정]: Cloud Tasks 큐를 통한 비동기 워커 실행 (Cloud Run CPU 스로틀링 방어 및 백그라운드 지속 보장)
+    from app.services.task_service import create_task
+    payload = {
+        "task_id": task_id,
+        "youtube_url": url,
+        "api_key": req.gemini_api_key,
+        "force_refresh": req.force_refresh or False
+    }
+    create_task("api/worker/analyze", payload)
+    logger.info(f"⚡ [Cloud Tasks 실행] 분석 작업 워커에 위임: {task_id}")
 
     return {
         "status": "success",
@@ -326,3 +327,37 @@ async def get_admin_dashboard() -> Dict[str, Any]:
         "recent_logs": analysis_logs[:30]
     }
 
+
+@router.get("/library")
+async def get_global_library(limit: int = 50):
+    """전역 보관함 (최신 캐시 데이터) 조회 API"""
+    from app.services.firestore_service import get_all_documents
+    try:
+        all_caches = get_all_documents("analysis_cache")
+        all_caches.sort(key=lambda x: x.get("updated_at", 0) if isinstance(x, dict) else 0, reverse=True)
+        return {
+            "status": "success",
+            "items": all_caches[:limit]
+        }
+    except Exception as e:
+        logger.error(f"보관함 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"보관함 조회 실패: {str(e)}")
+
+@router.delete("/library/{item_id}")
+async def delete_library_item(item_id: str):
+    """전역 보관함 특정 캐시 삭제 API"""
+    from app.services.firestore_service import delete_document
+    try:
+        delete_document("analysis_cache", item_id)
+        from app.services.cache_service import CACHE_DIR, _memory_cache
+        _memory_cache.pop(item_id, None)
+        cache_file = CACHE_DIR / f"{item_id}.json"
+        if cache_file.exists():
+            cache_file.unlink()
+        return {
+            "status": "success",
+            "message": f"{item_id} 항목이 삭제되었습니다."
+        }
+    except Exception as e:
+        logger.error(f"보관함 항목 삭제 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"항목 삭제 실패: {str(e)}")

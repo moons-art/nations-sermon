@@ -364,7 +364,9 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
 
     import uuid
     sticky_session_id = uuid.uuid4().hex[:8]
-    proxy_url = get_youtube_proxy(sticky_session_id)
+    # [하이브리드 요금 절감]: 1차 시도는 무조건 프록시 없이(기본 IP) 시도하여 요금을 0원으로 만듦
+    proxy_url = None
+    # 추후 403 차단 시 get_youtube_proxy(sticky_session_id) 할당
 
     # 단일 프로그레시브 720p 스트림 우선 (DASH 멀티스트림 회피)
     format_720p_progressive = (
@@ -446,10 +448,15 @@ def download_or_prepare_clip(url: str, start_time: str, end_time: str, target_fi
                 err_msg = res.stderr.decode("utf-8", errors="replace") if res.stderr else "검증 실패"
                 logger.warning(f"1차 FFmpeg Seek 검증 실패 -> 2차 폴백 진행:\n{err_msg[-200:]}")
     except Exception as e2:
-        logger.warning(f"⚠️ 1차 Direct Stream Seek 예외 발생: {e2} -> 2차 폴백 시도")
+        logger.warning(f"⚠️ 1차 기본 IP 다운로드 실패 (IP 차단 의심): {e2} -> 2차 프록시 우회 시도")
         if target_file.exists():
             try: target_file.unlink()
             except: pass
+
+    # 1차 실패 시 유료 주거용 프록시 가동 (차단 시에만 돈을 쓰도록 방어)
+    proxy_url = get_youtube_proxy(sticky_session_id)
+    if proxy_url:
+        logger.info(f"🛡️ [하이브리드 요금 절감] 기본 IP 차단 감지, 유료 프록시({sticky_session_id})로 우회합니다.")
 
     # ─────────────────────────────────────────────────────────────
     # [2차 시도]: yt-dlp download_ranges 구간 다운로드 + faststart
